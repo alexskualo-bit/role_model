@@ -82,7 +82,8 @@ type FrameworkAnswers = {
 const emptyFramework: FrameworkAnswers = {
   goal: '', audience: '', outcome: '', context: '', data: '', operator: '', pilot: '',
 };
-const frameworkKey = (scope: Scope) => `role-center-framework-${scope}-v1`;
+const userStorageKey = (userId: string, name: string) => `role-center-v3:${userId}:${name}`;
+const frameworkKey = (scope: Scope, userId: string) => userStorageKey(userId, `framework:${scope}`);
 const suggestRoles = (items: Role[], answers: FrameworkAnswers, excluded: string[] = []) => {
   const query = `${answers.goal} ${answers.audience} ${answers.outcome} ${answers.context}`.toLowerCase();
   const terms = query.split(/[^а-яёa-z0-9]+/).filter((word) => word.length > 3);
@@ -3848,7 +3849,7 @@ const initialTasks: TaskItem[] = [
   },
 ];
 
-function Tasks({ mode, roleList, scope }: { mode: Mode; roleList: Role[]; scope: Scope }) {
+function Tasks({ mode, roleList, scope, userId }: { mode: Mode; roleList: Role[]; scope: Scope; userId: string }) {
   const roles = roleList;
   const [view, setView] = useState<'board' | 'map'>('board');
   const [tasks, setTasks] = useState<TaskItem[]>(scope === 'clubfirst' ? [] : initialTasks);
@@ -3868,7 +3869,7 @@ function Tasks({ mode, roleList, scope }: { mode: Mode; roleList: Role[]; scope:
   ]);
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(scope === 'clubfirst' ? 'role-center-processes-clubfirst-v1' : 'role-center-processes-v2');
+      const saved = localStorage.getItem(userStorageKey(userId, `processes:${scope}`));
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed.processDrafts?.operator && parsed.processDrafts?.owner)
@@ -3879,14 +3880,14 @@ function Tasks({ mode, roleList, scope }: { mode: Mode; roleList: Role[]; scope:
       }
     } catch {}
     setProcessesHydrated(true);
-  }, []);
+  }, [scope, userId]);
   useEffect(() => {
     if (processesHydrated)
       localStorage.setItem(
-        scope === 'clubfirst' ? 'role-center-processes-clubfirst-v1' : 'role-center-processes-v2',
+        userStorageKey(userId, `processes:${scope}`),
         JSON.stringify({ processDrafts, tasks, processAlerts }),
       );
-  }, [processDrafts, tasks, processAlerts, processesHydrated]);
+  }, [processDrafts, tasks, processAlerts, processesHydrated, scope, userId]);
   const [processQuery, setProcessQuery] = useState('');
   const [processAlertsOnly, setProcessAlertsOnly] = useState(false);
   const [activePhase, setActivePhase] = useState(0);
@@ -4609,15 +4610,21 @@ function Tasks({ mode, roleList, scope }: { mode: Mode; roleList: Role[]; scope:
 function Setup({
   roleList,
   scope,
+  userId,
   onOpenCatalog,
   onConfigure,
   onSaveRole,
+  onFrameworkComplete,
+  onSetupComplete,
 }: {
   roleList: Role[];
   scope: Scope;
+  userId: string;
   onOpenCatalog: () => void;
   onConfigure: (role: Role) => void;
   onSaveRole: (role: Role) => void;
+  onFrameworkComplete: () => void;
+  onSetupComplete: () => void;
 }) {
   const roles = roleList;
   const [route, setRoute] = useState<'team' | 'self'>('self');
@@ -4628,9 +4635,10 @@ function Setup({
   const [teamRequest, setTeamRequest] = useState(false);
   const [frameworkError, setFrameworkError] = useState('');
   const [launchMessage, setLaunchMessage] = useState('');
+  const [draftLoaded, setDraftLoaded] = useState(false);
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem(frameworkKey(scope)) || 'null');
+      const saved = JSON.parse(localStorage.getItem(frameworkKey(scope, userId)) || 'null');
       if (saved) {
         setRoute(saved.route === 'team' ? 'team' : 'self');
         setFramework({ ...emptyFramework, ...saved.framework });
@@ -4640,10 +4648,11 @@ function Setup({
         setStep(Number(saved.step) || 1);
       }
     } catch {}
-  }, [scope]);
+    setDraftLoaded(true);
+  }, [scope, userId]);
   useEffect(() => {
-    localStorage.setItem(frameworkKey(scope), JSON.stringify({ route, framework, selected, generated, teamRequest, step }));
-  }, [scope, route, framework, selected, generated, teamRequest, step]);
+    if (draftLoaded) localStorage.setItem(frameworkKey(scope, userId), JSON.stringify({ route, framework, selected, generated, teamRequest, step }));
+  }, [scope, userId, route, framework, selected, generated, teamRequest, step, draftLoaded]);
   const updateFramework = (key: keyof FrameworkAnswers, value: string) => {
     setFramework((current) => ({ ...current, [key]: value }));
     setGenerated(false);
@@ -4656,6 +4665,7 @@ function Setup({
       return;
     }
     setFrameworkError('');
+    onFrameworkComplete();
     setStep(3);
   };
   const recommended = suggestRoles(roles, framework).slice(0, 5);
@@ -5082,6 +5092,7 @@ function Setup({
           <button className="primary next" onClick={launch}>
             Проверить готовность запуска
           </button>
+          {launchMessage.startsWith('Пилот подготовлен') && <button className="secondary next" onClick={onSetupComplete}>Открыть рабочий стол <ArrowRight /></button>}
         </section>
       )}
     </div>
@@ -5090,12 +5101,14 @@ function Setup({
 
 function RoleCatalog({
   roleList,
+  userId,
   onOpen,
   onCreate,
   onAddToSetup,
   scope,
 }: {
   roleList: Role[];
+  userId: string;
   onOpen: (role: Role) => void;
   onCreate: (role: Role) => void;
   onAddToSetup: (role: Role) => void;
@@ -5110,8 +5123,8 @@ function RoleCatalog({
   const [advisorMode, setAdvisorMode] = useState<'ai' | 'team'>('ai');
   const [savedSetup, setSavedSetup] = useState<{ framework: FrameworkAnswers; selected: string[] } | null>(null);
   useEffect(() => {
-    try { setSavedSetup(JSON.parse(localStorage.getItem(frameworkKey(scope)) || 'null')); } catch { setSavedSetup(null); }
-  }, [scope]);
+    try { setSavedSetup(JSON.parse(localStorage.getItem(frameworkKey(scope, userId)) || 'null')); } catch { setSavedSetup(null); }
+  }, [scope, userId]);
   const nextSuggestions = savedSetup ? suggestRoles(roleList, savedSetup.framework, savedSetup.selected || []).slice(0, 3) : [];
   const create = () => {
     if (!name.trim() || !short.trim() || !owner.trim()) {
@@ -5351,8 +5364,11 @@ const mergeStoredRoles = (defaults: Role[], stored: Role[]): Role[] => [
   ...stored.filter((item) => item.kind === 'custom'),
 ];
 
-export default function Home() {
+export default function Home({ user }: { user?: { userId: string; displayName: string; email: string } }) {
+  const userId = user?.userId || 'demo';
   const [page, setPage] = useState<Page>('setup');
+  const [entryState, setEntryState] = useState<'loading' | 'choice' | 'ready'>('loading');
+  const [frameworkComplete, setFrameworkComplete] = useState(false);
   const [mode, setMode] = useState<Mode>('operator');
   const [scope, setScope] = useState<Scope>('general');
   const [generalRoles, setGeneralRoles] = useState<Role[]>(
@@ -5370,7 +5386,12 @@ export default function Home() {
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('role-center-roles-v2');
+      const phase = localStorage.getItem(userStorageKey(userId, 'onboarding'));
+      const hasChosenPath = phase === 'path_chosen' || phase === 'framework_confirmed' || phase === 'setup_complete';
+      setEntryState(hasChosenPath ? 'ready' : 'choice');
+      setFrameworkComplete(phase === 'framework_confirmed' || phase === 'setup_complete');
+      setPage(phase === 'setup_complete' ? 'overview' : 'setup');
+      const saved = localStorage.getItem(userStorageKey(userId, 'roles:general'));
       if (saved) {
         const stored = JSON.parse(saved) as Role[];
         if (Array.isArray(stored)) {
@@ -5379,21 +5400,21 @@ export default function Home() {
           })), stored));
         }
       }
-      const savedClub = localStorage.getItem('role-center-clubfirst-roles-v1');
+      const savedClub = localStorage.getItem(userStorageKey(userId, 'roles:clubfirst'));
       if (savedClub) {
         const storedClub = JSON.parse(savedClub) as Role[];
         if (Array.isArray(storedClub)) setClubRoles(mergeStoredRoles(clubFirstRoles, storedClub));
       }
     } catch {}
     setHydrated(true);
-  }, []);
+  }, [userId]);
   useEffect(() => {
     if (hydrated)
-      localStorage.setItem('role-center-roles-v2', JSON.stringify(generalRoles));
-  }, [generalRoles, hydrated]);
+      localStorage.setItem(userStorageKey(userId, 'roles:general'), JSON.stringify(generalRoles));
+  }, [generalRoles, hydrated, userId]);
   useEffect(() => {
-    if (hydrated) localStorage.setItem('role-center-clubfirst-roles-v1', JSON.stringify(clubRoles));
-  }, [clubRoles, hydrated]);
+    if (hydrated) localStorage.setItem(userStorageKey(userId, 'roles:clubfirst'), JSON.stringify(clubRoles));
+  }, [clubRoles, hydrated, userId]);
   const role = roleList.find((item) => item.name === roleName) || roleList[0];
   const attention = useMemo(
     () => roleList.filter((r) => r.configured && r.health < 75).length,
@@ -5416,15 +5437,15 @@ export default function Home() {
       return;
     setRoleList((current) => [...current, created]);
     try {
-      const saved = JSON.parse(localStorage.getItem(frameworkKey(scope)) || 'null');
-      if (saved) localStorage.setItem(frameworkKey(scope), JSON.stringify({ ...saved, selected: [...new Set([...(saved.selected || []), created.name])] }));
+      const saved = JSON.parse(localStorage.getItem(frameworkKey(scope, userId)) || 'null');
+      if (saved) localStorage.setItem(frameworkKey(scope, userId), JSON.stringify({ ...saved, selected: [...new Set([...(saved.selected || []), created.name])] }));
     } catch {}
     openRole(created);
   };
   const addRoleToSetup = (added: Role) => {
     try {
-      const saved = JSON.parse(localStorage.getItem(frameworkKey(scope)) || 'null') || {};
-      localStorage.setItem(frameworkKey(scope), JSON.stringify({ ...saved, selected: [...new Set([...(saved.selected || []), added.name])], step: 4 }));
+      const saved = JSON.parse(localStorage.getItem(frameworkKey(scope, userId)) || 'null') || {};
+      localStorage.setItem(frameworkKey(scope, userId), JSON.stringify({ ...saved, selected: [...new Set([...(saved.selected || []), added.name])], step: 4 }));
     } catch {}
     setPage('setup');
   };
@@ -5435,9 +5456,47 @@ export default function Home() {
   };
   const changeScope = (next: Scope) => {
     setScope(next);
-    setPage('overview');
+    setPage(frameworkComplete ? 'overview' : 'setup');
     setRoleName((next === 'general' ? generalRoles : clubRoles)[0].name);
   };
+  const startPath = (route: 'team' | 'self') => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(frameworkKey(scope, userId)) || 'null') || {};
+      localStorage.setItem(frameworkKey(scope, userId), JSON.stringify({
+        ...saved, route, step: 2, generated: false, teamRequest: false,
+      }));
+      localStorage.setItem(userStorageKey(userId, 'onboarding'), 'path_chosen');
+    } catch {}
+    setFrameworkComplete(false);
+    setPage('setup');
+    setEntryState('ready');
+  };
+  const confirmFramework = () => {
+    localStorage.setItem(userStorageKey(userId, 'onboarding'), 'framework_confirmed');
+    setFrameworkComplete(true);
+  };
+  const completeSetup = () => {
+    localStorage.setItem(userStorageKey(userId, 'onboarding'), 'setup_complete');
+    setPage('overview');
+  };
+  if (entryState === 'loading') return <div className="entry-loading">Загружаем Role Center…</div>;
+  if (entryState === 'choice') return (
+    <main className="entry-shell">
+      <div className="entry-brand"><span>RC</span><div><b>Role Center</b><small>Центр управления ролями</small></div></div>
+      <section className="entry-panel">
+        <div className="entry-progress"><span className="complete"><Check /> Авторизация</span><span className="current">2 · Выбор пути</span><span>3 · Фреймворк</span></div>
+        <div className="entry-auth"><div className="entry-auth-icon"><UserRound /></div><div><b>{user ? 'Вы авторизованы' : 'Демонстрационный вход'}</b><span>{user ? user.displayName : 'В автономной HTML-версии авторизация не подключена'}</span></div><Check /></div>
+        <span className="entry-eyebrow">Первый вход</span>
+        <h1>Как вы хотите создать ролевую систему?</h1>
+        <p>Выберите путь сейчас. В обоих случаях следующим шагом будет один и тот же фреймворк — он поможет сформулировать задачу, аудиторию, эффекты и ресурсы пилота.</p>
+        <div className="entry-routes">
+          <button onClick={() => startPath('team')}><Users /><b>Проектировать с командой</b><span>Заполнить фреймворк, передать запрос команде и затем вместе создать роли.</span><em>Выбрать путь <ArrowRight /></em></button>
+          <button onClick={() => startPath('self')}><Sparkles /><b>Проектировать самостоятельно</b><span>Заполнить фреймворк, получить подбор ролей из базы и настроить пилот.</span><em>Выбрать путь <ArrowRight /></em></button>
+        </div>
+        <details className="entry-dev-note"><summary>Для разработчика: логика входа</summary><p>Реальный вход выполняет платформа ChatGPT до открытия приложения. Выбор пути сохраняется для текущего пользователя и клуба; затем открывается общий фреймворк. В этом прототипе выбор хранится в браузере, а производственная схема описана в документации проекта.</p></details>
+      </section>
+    </main>
+  );
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -5453,6 +5512,7 @@ export default function Home() {
             <button
               className={page === id ? 'active' : ''}
               onClick={() => setPage(id)}
+              disabled={!frameworkComplete && id !== 'setup'}
               key={id}
             >
               <Icon />
@@ -5484,6 +5544,7 @@ export default function Home() {
           <button
             className={page === id ? 'active' : ''}
             onClick={() => setPage(id)}
+            disabled={!frameworkComplete && id !== 'setup'}
             key={id}
           >
             <Icon />
@@ -5503,6 +5564,7 @@ export default function Home() {
         {page === 'catalog' && (
           <RoleCatalog
             roleList={roleList}
+            userId={userId}
             scope={scope}
             onOpen={openRole}
             onCreate={createRole}
@@ -5518,15 +5580,18 @@ export default function Home() {
             onSave={saveRole}
           />
         )}{' '}
-        {page === 'tasks' && <Tasks key={scope} mode={mode} roleList={roleList} scope={scope} />}{' '}
+        {page === 'tasks' && <Tasks key={scope} mode={mode} roleList={roleList} scope={scope} userId={userId} />}{' '}
         {page === 'setup' && (
           <Setup
             key={scope}
             roleList={roleList}
             scope={scope}
+            userId={userId}
             onOpenCatalog={() => setPage('catalog')}
             onConfigure={openRole}
             onSaveRole={saveRole}
+            onFrameworkComplete={confirmFramework}
+            onSetupComplete={completeSetup}
           />
         )}
       </div>
