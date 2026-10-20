@@ -76,12 +76,12 @@ type FrameworkAnswers = {
   outcome: string;
   context: string;
   data: string;
-  operator: string;
   pilot: string;
 };
 const emptyFramework: FrameworkAnswers = {
-  goal: '', audience: '', outcome: '', context: '', data: '', operator: '', pilot: '',
+  goal: '', audience: '', outcome: '', context: '', data: '', pilot: '',
 };
+type RegistrationProfile = { name: string; email: string; organization: string; position: string };
 const userStorageKey = (userId: string, name: string) => `role-center-v3:${userId}:${name}`;
 const frameworkKey = (scope: Scope, userId: string) => userStorageKey(userId, `framework:${scope}`);
 const suggestRoles = (items: Role[], answers: FrameworkAnswers, excluded: string[] = []) => {
@@ -671,8 +671,8 @@ function Overview({
           <ListTodo />
           <div>
             <span>Задачи на неделю</span>
-            <strong>{scope === 'clubfirst' ? '—' : mode === 'operator' ? 9 : 5}</strong>
-            <small>{scope === 'clubfirst' ? 'задачи пока не назначены' : '3 приоритетных'}</small>
+            <strong>—</strong>
+            <small>задачи пока не назначены</small>
           </div>
         </article>
       </div>
@@ -758,7 +758,7 @@ function Overview({
             <small>совокупный чистый эффект</small>
           </strong>
         </div>
-        {scope === 'clubfirst' && !visible.some((item) => item.dataReady !== false) ? (
+        {!visible.some((item) => item.dataReady !== false) ? (
           <div className="data-rule"><Database /><div><b>Экономика ролей пока не рассчитана</b><p>В карточке каждой роли уже указан набор исходных параметров. Внесите фактические значения, чтобы появился расчёт по роли и сводка портфеля.</p></div></div>
         ) : <div className="portfolio-economy-grid">
           {visible.map((item) => (
@@ -790,7 +790,7 @@ function Overview({
             <h2>Что требует решения сейчас</h2>
           </div>
         </div>
-        {scope === 'clubfirst' ? (
+        {!visible.some((item) => item.dataReady !== false) ? (
           <div className="action-list">
             {roleList.slice(0, 3).map((item) => (
               <button key={item.name} onClick={() => openRole(item)}>
@@ -801,36 +801,14 @@ function Overview({
             ))}
           </div>
         ) : <div className="action-list">
-          <button onClick={() => openRole(roles[4])}>
-            <i className="bad">
-              <AlertTriangle />
-            </i>
-            <span>
-              <b>Амбассадор: индекс 68</b>
-              <small>Низкая устойчивость и не хватает подтверждений</small>
-            </span>
-            <ArrowRight />
-          </button>
-          <button onClick={() => openRole(roles[3])}>
-            <i className="warn">
-              <ClipboardCheck />
-            </i>
-            <span>
-              <b>Эксперт / Автор: проверить пилот</b>
-              <small>Результативность ниже цели</small>
-            </span>
-            <ArrowRight />
-          </button>
-          <button onClick={() => openRole(roles[2])}>
-            <i className="good">
-              <Sparkles />
-            </i>
-            <span>
-              <b>Хранитель ценностей: сильная практика</b>
-              <small>Можно масштабировать механику</small>
-            </span>
-            <ArrowRight />
-          </button>
+          {visible.filter((item) => item.health < 75).map((item) => (
+            <button key={item.name} onClick={() => openRole(item)}>
+              <i className="warn"><AlertTriangle /></i>
+              <span><b>{item.name}: индекс {item.health}</b><small>Откройте показатели и определите корректирующее действие</small></span>
+              <ArrowRight />
+            </button>
+          ))}
+          {!visible.some((item) => item.health < 75) && <p>Отклонений по рассчитанным ролям нет.</p>}
         </div>}
       </section>
     </div>
@@ -3852,7 +3830,7 @@ const initialTasks: TaskItem[] = [
 function Tasks({ mode, roleList, scope, userId }: { mode: Mode; roleList: Role[]; scope: Scope; userId: string }) {
   const roles = roleList;
   const [view, setView] = useState<'board' | 'map'>('board');
-  const [tasks, setTasks] = useState<TaskItem[]>(scope === 'clubfirst' ? [] : initialTasks);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [processDrafts, setProcessDrafts] = useState<
     Record<Mode, ProcessItem[]>
   >({
@@ -3896,7 +3874,7 @@ function Tasks({ mode, roleList, scope, userId }: { mode: Mode; roleList: Role[]
   const [alertsOnly, setAlertsOnly] = useState(false);
   const [taskRole, setTaskRole] = useState(roles[0]?.name || 'Все роли');
   const [taskSubject, setTaskSubject] = useState('Роль целиком');
-  const [taskDue, setTaskDue] = useState('2026-10-16');
+  const [taskDue, setTaskDue] = useState(() => new Date().toISOString().slice(0, 10));
   const [taskOwner, setTaskOwner] = useState(
     mode === 'operator' ? 'Оператор ролей' : 'Владелец роли',
   );
@@ -4624,13 +4602,17 @@ function Setup({
   onConfigure: (role: Role) => void;
   onSaveRole: (role: Role) => void;
   onFrameworkComplete: () => void;
-  onSetupComplete: () => void;
+  onSetupComplete: (roleNames: string[]) => void;
 }) {
   const roles = roleList;
   const [route, setRoute] = useState<'team' | 'self'>('self');
   const [step, setStep] = useState(1);
   const [framework, setFramework] = useState<FrameworkAnswers>(emptyFramework);
+  const [operator, setOperator] = useState({ name: '', position: '', contact: '' });
   const [selected, setSelected] = useState<string[]>([]);
+  const [parametersConfirmed, setParametersConfirmed] = useState<string[]>([]);
+  const [primaryRolesLoaded, setPrimaryRolesLoaded] = useState(false);
+  const [dataSource, setDataSource] = useState<'crm' | 'table' | 'manual' | ''>('');
   const [generated, setGenerated] = useState(false);
   const [teamRequest, setTeamRequest] = useState(false);
   const [frameworkError, setFrameworkError] = useState('');
@@ -4642,7 +4624,11 @@ function Setup({
       if (saved) {
         setRoute(saved.route === 'team' ? 'team' : 'self');
         setFramework({ ...emptyFramework, ...saved.framework });
+        setOperator(saved.operator || { name: '', position: '', contact: '' });
         setSelected(Array.isArray(saved.selected) ? saved.selected : []);
+        setParametersConfirmed(Array.isArray(saved.parametersConfirmed) ? saved.parametersConfirmed : []);
+        setPrimaryRolesLoaded(Boolean(saved.primaryRolesLoaded));
+        setDataSource(saved.dataSource || '');
         setGenerated(Boolean(saved.generated));
         setTeamRequest(Boolean(saved.teamRequest));
         setStep(Number(saved.step) || 1);
@@ -4651,17 +4637,17 @@ function Setup({
     setDraftLoaded(true);
   }, [scope, userId]);
   useEffect(() => {
-    if (draftLoaded) localStorage.setItem(frameworkKey(scope, userId), JSON.stringify({ route, framework, selected, generated, teamRequest, step }));
-  }, [scope, userId, route, framework, selected, generated, teamRequest, step, draftLoaded]);
+    if (draftLoaded) localStorage.setItem(frameworkKey(scope, userId), JSON.stringify({ route, framework, operator, selected, parametersConfirmed, primaryRolesLoaded, dataSource, generated, teamRequest, step }));
+  }, [scope, userId, route, framework, operator, selected, parametersConfirmed, primaryRolesLoaded, dataSource, generated, teamRequest, step, draftLoaded]);
   const updateFramework = (key: keyof FrameworkAnswers, value: string) => {
     setFramework((current) => ({ ...current, [key]: value }));
     setGenerated(false);
     setTeamRequest(false);
   };
-  const validFramework = Object.values(framework).every((value) => value.trim().length > 0);
+  const validFramework = (Object.keys(emptyFramework) as (keyof FrameworkAnswers)[]).every((key) => framework[key]?.trim().length > 0);
   const finishFramework = () => {
     if (!validFramework) {
-      setFrameworkError('Заполните все семь пунктов фреймворка: они нужны для обоих сценариев.');
+      setFrameworkError('Заполните все шесть пунктов фреймворка: они нужны для обоих сценариев.');
       return;
     }
     setFrameworkError('');
@@ -4670,13 +4656,14 @@ function Setup({
   };
   const recommended = suggestRoles(roles, framework).slice(0, 5);
   const toggle = (name: string) =>
-    setSelected((c) =>
-      c.includes(name)
-        ? c.filter((x) => x !== name)
-        : c.length < 5
-          ? [...c, name]
-          : c,
-    );
+    setSelected((c) => {
+      setPrimaryRolesLoaded(false);
+      if (c.includes(name)) {
+        setParametersConfirmed((current) => current.filter((item) => item !== name));
+        return c.filter((x) => x !== name);
+      }
+      return c.length < 5 ? [...c, name] : c;
+    });
   const launch = () => {
     const missing = selected
       .map((name) => roles.find((role) => role.name === name))
@@ -4693,14 +4680,26 @@ function Setup({
       setLaunchMessage('Назначьте владельца, его должность и контакт для каждой выбранной роли.');
       return;
     }
+    if (!operator.name.trim() || !operator.position.trim() || !operator.contact.trim()) {
+      setLaunchMessage('Назначьте оператора ролей: имя, должность и контакт.');
+      return;
+    }
     if (missing.length) {
       setLaunchMessage(
         `Не настроены обязательные показатели: ${missing.map((role) => role?.name).join(', ')}.`,
       );
       return;
     }
+    if (selected.some((name) => !parametersConfirmed.includes(name))) {
+      setLaunchMessage('Подтвердите параметры индекса, эффектов и экономики для каждой роли.');
+      return;
+    }
+    if (!primaryRolesLoaded) {
+      setLaunchMessage('Сначала зафиксируйте первичный портфель ролей и проверьте распределение.');
+      return;
+    }
     setLaunchMessage(
-      'Пилот подготовлен: роли, владельцы и модели расчёта проверены. Подключение реальных данных остаётся отдельным шагом.',
+      'Пилот подготовлен: роли, параметры, ответственные и распределение проверены. Подключение реальных данных остаётся отдельным шагом.',
     );
   };
   return (
@@ -4709,17 +4708,18 @@ function Setup({
         <div>
           <span>Первичная настройка</span>
           <h1>Путь от запроса до запуска ролей</h1>
-          <p>Выберите сценарий, заполните общий фреймворк, спроектируйте роли и подготовьте пилот.</p>
+          <p>От выбора пути и описания задачи до параметров, ответственных, распределения и запуска.</p>
         </div>
       </div>
-      <nav className="setup-steps seven">
+      <nav className="setup-steps eight">
         {[
           'Путь',
           'Фреймворк',
           'Следующий шаг',
           'Проектирование',
+          'Параметры',
           'Ответственные',
-          'Расчёты',
+          'Распределение',
           'Запуск',
         ].map((x, i) => (
           <button
@@ -4816,10 +4816,6 @@ function Setup({
                 <option>Таблица участников</option>
                 <option>Пока только ручной ввод</option>
               </select>
-            </label>
-            <label>
-              <span>Кто оператор ролей?</span>
-              <input value={framework.operator} onChange={(e) => updateFramework('operator', e.target.value)} placeholder="Имя, должность и контакт" />
             </label>
             <label>
               <span>Какой ресурс есть на пилот?</span>
@@ -4932,43 +4928,21 @@ function Setup({
             className="primary next"
             onClick={() => { if (selected.length) { setFrameworkError(''); setStep(5); } else setFrameworkError('Выберите хотя бы одну роль для проектирования.'); }}
           >
-            Назначить ответственных <ArrowRight />
+            Определить параметры ролей <ArrowRight />
           </button>
           {frameworkError && <p className="form-error">{frameworkError}</p>}
         </section>
       )}
       {step === 5 && (
-        <section className="setup-card">
-          <div className="section-title"><div><span>Шаг 5</span><h2>Оператор и владельцы ролей</h2><p>Оператор отвечает за методологию всей системы, владелец — за применение своей роли.</p></div></div>
-          <div className="team-handoff"><b>Оператор ролей</b><span>{framework.operator} · изменить можно во фреймворке</span></div>
-          <div className="setup-owner-list">
-            {roles.filter((r) => selected.includes(r.name)).map((r) => <article key={r.name}>
-              <b>{r.name}</b>
-              <div className="owner-fields">
-                <label>Фамилия и имя<input value={r.owner} onChange={(e) => onSaveRole({ ...r, owner: e.target.value })} placeholder="Фамилия Имя" /></label>
-                <label>Должность<input value={r.ownerPosition || ''} onChange={(e) => onSaveRole({ ...r, ownerPosition: e.target.value })} placeholder="Должность" /></label>
-                <label>Контакт<input value={r.ownerContact || ''} onChange={(e) => onSaveRole({ ...r, ownerContact: e.target.value })} placeholder="Почта или телефон" /></label>
-              </div>
-            </article>)}
-          </div>
-          <button className="primary next" onClick={() => {
-            if (roles.filter((r) => selected.includes(r.name)).some((r) => !r.owner.trim() || !r.ownerPosition?.trim() || !r.ownerContact?.trim())) {
-              setFrameworkError('Укажите имя, должность и контакт владельца для каждой роли.');
-            } else { setFrameworkError(''); setStep(6); }
-          }}>Проверить расчёты <ArrowRight /></button>
-          {frameworkError && <p className="form-error">{frameworkError}</p>}
-        </section>
-      )}
-      {step === 6 && (
         <section className="setup-calculations">
           <div className="setup-calc-head">
             <div>
-              <span>Шаг 6</span>
-              <h2>Готовность расчётов</h2>
+              <span>Шаг 5</span>
+              <h2>Параметры каждой роли</h2>
               <p>
-                Для каждой роли обязательны шесть измерений индекса, эффекты для
-                участника и клуба, а также статьи экономики с источниками и
-                целями.
+                Сначала проверьте и при необходимости измените индекс здоровья,
+                эффекты для участника и клуба, экономику, источники и цели.
+                Затем подтвердите модель каждой роли.
               </p>
             </div>
           </div>
@@ -4981,30 +4955,55 @@ function Setup({
                     <div>
                       <b>{role.name}</b>
                       <small>
-                        {role.configured
-                          ? 'Модель настроена'
-                          : 'Требуется настройка'}
+                        {parametersConfirmed.includes(role.name) ? 'Параметры подтверждены' : role.configured ? 'Требует проверки параметров' : 'Требуется настройка'}
                       </small>
                     </div>
-                    <button
-                      className="secondary"
-                      onClick={() => onConfigure(role)}
-                    >
-                      <Settings2 />
-                      Открыть показатели
-                    </button>
+                    <div className="setup-calc-actions">
+                      <button className="secondary" onClick={() => onConfigure(role)}><Settings2 /> Индекс, эффекты и экономика</button>
+                      <button className="secondary" disabled={!role.configured} onClick={() => setParametersConfirmed((current) => current.includes(role.name) ? current.filter((name) => name !== role.name) : [...current, role.name])}>
+                        <Check /> {parametersConfirmed.includes(role.name) ? 'Подтверждено' : 'Подтвердить параметры'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
           </div>
           <div className="setup-save-bar">
-            <span>
-              Черновик нельзя запустить, пока обязательные блоки не настроены.
-            </span>
-            <button className="primary" onClick={() => setStep(7)}>
-              Перейти к данным <ArrowRight />
+            <span>Подтверждено {selected.filter((name) => parametersConfirmed.includes(name)).length} из {selected.length} моделей ролей.</span>
+            <button className="primary" onClick={() => {
+              if (selected.some((name) => !parametersConfirmed.includes(name))) setFrameworkError('Подтвердите параметры для всех выбранных ролей.');
+              else { setFrameworkError(''); setStep(6); }
+            }}>
+              Назначить ответственных <ArrowRight />
             </button>
           </div>
+          {frameworkError && <p className="form-error">{frameworkError}</p>}
+        </section>
+      )}
+      {step === 6 && (
+        <section className="setup-card">
+          <div className="section-title"><div><span>Шаг 6</span><h2>Оператор и владельцы ролей</h2><p>После настройки параметров назначьте методологического оператора и владельца каждой роли.</p></div></div>
+          <div className="setup-owner-list">
+            <article><b>Оператор ролевой системы</b><div className="owner-fields">
+              <label>Фамилия и имя<input value={operator.name} onChange={(e) => setOperator({ ...operator, name: e.target.value })} placeholder="Фамилия Имя" /></label>
+              <label>Должность<input value={operator.position} onChange={(e) => setOperator({ ...operator, position: e.target.value })} placeholder="Должность" /></label>
+              <label>Контакт<input value={operator.contact} onChange={(e) => setOperator({ ...operator, contact: e.target.value })} placeholder="Почта или телефон" /></label>
+            </div></article>
+            {roles.filter((r) => selected.includes(r.name)).map((r) => <article key={r.name}>
+              <b>Владелец роли · {r.name}</b>
+              <div className="owner-fields">
+                <label>Фамилия и имя<input value={r.owner} onChange={(e) => onSaveRole({ ...r, owner: e.target.value })} placeholder="Фамилия Имя" /></label>
+                <label>Должность<input value={r.ownerPosition || ''} onChange={(e) => onSaveRole({ ...r, ownerPosition: e.target.value })} placeholder="Должность" /></label>
+                <label>Контакт<input value={r.ownerContact || ''} onChange={(e) => onSaveRole({ ...r, ownerContact: e.target.value })} placeholder="Почта или телефон" /></label>
+              </div>
+            </article>)}
+          </div>
+          <button className="primary next" onClick={() => {
+            if (!operator.name.trim() || !operator.position.trim() || !operator.contact.trim()) setFrameworkError('Укажите имя, должность и контакт оператора.');
+            else if (roles.filter((r) => selected.includes(r.name)).some((r) => !r.owner.trim() || !r.ownerPosition?.trim() || !r.ownerContact?.trim())) setFrameworkError('Укажите имя, должность и контакт владельца для каждой роли.');
+            else { setFrameworkError(''); setStep(7); }
+          }}>Перейти к распределению <ArrowRight /></button>
+          {frameworkError && <p className="form-error">{frameworkError}</p>}
         </section>
       )}
       {step === 7 && (
@@ -5012,25 +5011,43 @@ function Setup({
           <div className="section-title">
             <div>
               <span>Шаг 7</span>
-              <h2>Подключите данные и запустите пилот</h2>
-              <p>
-                Система предложит совпадения участников с ролями. Решение о
-                назначении принимает человек.
-              </p>
+              <h2>Первичные роли и распределение</h2>
+              <p>Зафиксируйте роли первого запуска, распределите их по пилотам и проверьте нагрузку владельцев до запуска.</p>
             </div>
           </div>
+          <div className="setup-distribution">
+            {roles.filter((role) => selected.includes(role.name)).map((role) => <article key={role.name}>
+              <div><b>{role.name}</b><small>Владелец: {role.owner || 'не назначен'} · {parametersConfirmed.includes(role.name) ? 'параметры подтверждены' : 'параметры не подтверждены'}</small></div>
+              <label>Очередь запуска<select value={role.pilot === 'Пилот 2' ? 'Пилот 2' : 'Пилот 1'} onChange={(e) => { onSaveRole({ ...role, pilot: e.target.value }); setPrimaryRolesLoaded(false); }}><option>Пилот 1</option><option>Пилот 2</option></select></label>
+            </article>)}
+          </div>
+          <div className="distribution-summary"><b>Распределение:</b><span>Пилот 1 — {roles.filter((r) => selected.includes(r.name) && r.pilot !== 'Пилот 2').length} роли</span><span>Пилот 2 — {roles.filter((r) => selected.includes(r.name) && r.pilot === 'Пилот 2').length} роли</span><span>Владельцев — {new Set(roles.filter((r) => selected.includes(r.name)).map((r) => r.owner.trim()).filter(Boolean)).size}</span></div>
+          <button className="secondary" onClick={() => setPrimaryRolesLoaded(true)}><Check /> Зафиксировать первичный портфель ролей</button>
+          {primaryRolesLoaded && <div className="draft-notice" role="status"><Check /><span>Первичные роли зафиксированы. Можно выбрать источник данных и перейти к проверке запуска.</span></div>}
+          <h3 className="setup-subheading">Источник данных для пилота</h3>
           <div className="source-options">
-            <button>
+            <button className={dataSource === 'crm' ? 'active' : ''} onClick={() => setDataSource('crm')}>
               <Database />
-              <b>Подключить систему учёта</b>
-              <small>CRM, профиль, членство и активности</small>
+              <b>CRM / система учёта</b>
+              <small>Интеграция будет настраиваться отдельно</small>
             </button>
-            <button>
+            <button className={dataSource === 'table' ? 'active' : ''} onClick={() => setDataSource('table')}>
               <BookOpen />
-              <b>Загрузить таблицу</b>
-              <small>Поля будут сопоставлены с показателями</small>
+              <b>Таблица участников</b>
+              <small>Демонстрационный выбор источника, без загрузки файла</small>
             </button>
           </div>
+          <button className="primary next" onClick={() => {
+            if (!primaryRolesLoaded) setFrameworkError('Сначала зафиксируйте первичный портфель ролей.');
+            else if (!dataSource) setFrameworkError('Выберите предполагаемый источник данных для пилота.');
+            else { setFrameworkError(''); setStep(8); }
+          }}>Проверить готовность к запуску <ArrowRight /></button>
+          {frameworkError && <p className="form-error">{frameworkError}</p>}
+        </section>
+      )}
+      {step === 8 && (
+        <section className="setup-card">
+          <div className="section-title"><div><span>Шаг 8</span><h2>Проверка перед запуском</h2><p>Роли, параметры и ответственные должны быть согласованы до активации системы.</p></div></div>
           <div className="data-checklist">
             <div>
               <Check />
@@ -5076,7 +5093,7 @@ function Setup({
             </span>
             <ArrowRight />
             <span>
-              <b>2</b> пилота
+              <b>{new Set(roles.filter((r) => selected.includes(r.name)).map((r) => r.pilot)).size}</b> пилота
             </span>
             <ArrowRight />
             <span>
@@ -5092,7 +5109,7 @@ function Setup({
           <button className="primary next" onClick={launch}>
             Проверить готовность запуска
           </button>
-          {launchMessage.startsWith('Пилот подготовлен') && <button className="secondary next" onClick={onSetupComplete}>Открыть рабочий стол <ArrowRight /></button>}
+          {launchMessage.startsWith('Пилот подготовлен') && <button className="secondary next" onClick={() => onSetupComplete(selected)}>Открыть рабочий стол <ArrowRight /></button>}
         </section>
       )}
     </div>
@@ -5117,7 +5134,6 @@ function RoleCatalog({
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [short, setShort] = useState('');
-  const [owner, setOwner] = useState('');
   const [error, setError] = useState('');
   const [advisorOpen, setAdvisorOpen] = useState(false);
   const [advisorMode, setAdvisorMode] = useState<'ai' | 'team'>('ai');
@@ -5127,8 +5143,8 @@ function RoleCatalog({
   }, [scope, userId]);
   const nextSuggestions = savedSetup ? suggestRoles(roleList, savedSetup.framework, savedSetup.selected || []).slice(0, 3) : [];
   const create = () => {
-    if (!name.trim() || !short.trim() || !owner.trim()) {
-      setError('Заполните название, назначение и владельца роли.');
+    if (!name.trim() || !short.trim()) {
+      setError('Заполните название и назначение роли. Владельца назначим после параметров.');
       return;
     }
     if (
@@ -5139,11 +5155,10 @@ function RoleCatalog({
       setError('Роль с таким названием уже существует.');
       return;
     }
-    onCreate(createEmptyRole(name.trim(), short.trim(), owner.trim()));
+    onCreate(createEmptyRole(name.trim(), short.trim(), ''));
     setCreating(false);
     setName('');
     setShort('');
-    setOwner('');
     setError('');
   };
   return (
@@ -5204,14 +5219,6 @@ function RoleCatalog({
                 value={short}
                 onChange={(e) => setShort(e.target.value)}
                 placeholder="Какую задачу клуба решает"
-              />
-            </label>
-            <label>
-              Владелец роли
-              <input
-                value={owner}
-                onChange={(e) => setOwner(e.target.value)}
-                placeholder="Фамилия и имя"
               />
             </label>
           </div>
@@ -5367,37 +5374,59 @@ const mergeStoredRoles = (defaults: Role[], stored: Role[]): Role[] => [
 export default function Home({ user }: { user?: { userId: string; displayName: string; email: string } }) {
   const userId = user?.userId || 'demo';
   const [page, setPage] = useState<Page>('setup');
-  const [entryState, setEntryState] = useState<'loading' | 'choice' | 'ready'>('loading');
+  const [entryState, setEntryState] = useState<'loading' | 'registration' | 'choice' | 'ready'>('loading');
+  const [registrationProfile, setRegistrationProfile] = useState<RegistrationProfile>({ name: '', email: user?.email || '', organization: '', position: '' });
+  const [registrationError, setRegistrationError] = useState('');
   const [frameworkComplete, setFrameworkComplete] = useState(false);
+  const [setupComplete, setSetupComplete] = useState(false);
+  const [activeRoleNames, setActiveRoleNames] = useState<string[]>([]);
   const [mode, setMode] = useState<Mode>('operator');
-  const [scope, setScope] = useState<Scope>('general');
+  const [scope] = useState<Scope>('general');
   const [generalRoles, setGeneralRoles] = useState<Role[]>(
     roles.map((role) => ({
       ...role,
+      owner: '',
+      ownerPosition: '',
+      ownerContact: '',
+      pilot: 'Пилот 1',
       kind: 'base',
       configured: true,
-      dataReady: true,
+      dataReady: false,
     })),
   );
   const [clubRoles, setClubRoles] = useState<Role[]>(clubFirstRoles);
   const roleList = scope === 'general' ? generalRoles : clubRoles;
+  const portfolioRoles = setupComplete && activeRoleNames.length ? roleList.filter((role) => activeRoleNames.includes(role.name)) : roleList;
   const setRoleList = scope === 'general' ? setGeneralRoles : setClubRoles;
   const [roleName, setRoleName] = useState(roles[0].name);
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
     try {
       const phase = localStorage.getItem(userStorageKey(userId, 'onboarding'));
+      const savedProfile = localStorage.getItem(userStorageKey(userId, 'registration'));
+      if (savedProfile) setRegistrationProfile(JSON.parse(savedProfile));
       const hasChosenPath = phase === 'path_chosen' || phase === 'framework_confirmed' || phase === 'setup_complete';
-      setEntryState(hasChosenPath ? 'ready' : 'choice');
+      setEntryState(!savedProfile ? 'registration' : hasChosenPath ? 'ready' : 'choice');
       setFrameworkComplete(phase === 'framework_confirmed' || phase === 'setup_complete');
+      setSetupComplete(phase === 'setup_complete');
+      if (phase === 'setup_complete') {
+        const savedSetup = JSON.parse(localStorage.getItem(frameworkKey('general', userId)) || 'null');
+        if (Array.isArray(savedSetup?.selected)) setActiveRoleNames(savedSetup.selected);
+      }
       setPage(phase === 'setup_complete' ? 'overview' : 'setup');
       const saved = localStorage.getItem(userStorageKey(userId, 'roles:general'));
       if (saved) {
         const stored = JSON.parse(saved) as Role[];
         if (Array.isArray(stored)) {
           setGeneralRoles(mergeStoredRoles(roles.map((base) => ({
-            ...base, kind: 'base', configured: true, dataReady: true,
-          })), stored));
+            ...base, owner: '', ownerPosition: '', ownerContact: '', pilot: 'Пилот 1', kind: 'base', configured: true, dataReady: false,
+          })), stored.map((item) => ({
+            ...item,
+            dataReady: Boolean(item.model?.dimensions.every((dimension) =>
+              dimension.metrics.every((metric) => metric.fact !== null),
+            ) && item.model?.participantMetrics.every((metric) => metric.fact !== null)
+              && item.model?.beneficiaryMetrics.every((metric) => metric.fact !== null)),
+          }))));
         }
       }
       const savedClub = localStorage.getItem(userStorageKey(userId, 'roles:clubfirst'));
@@ -5417,8 +5446,8 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
   }, [clubRoles, hydrated, userId]);
   const role = roleList.find((item) => item.name === roleName) || roleList[0];
   const attention = useMemo(
-    () => roleList.filter((r) => r.configured && r.health < 75).length,
-    [roleList],
+    () => portfolioRoles.filter((r) => r.configured && r.dataReady !== false && r.health < 75).length,
+    [portfolioRoles],
   );
   const openRole = (r: Role) => {
     setRoleName(r.name);
@@ -5454,11 +5483,6 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
     if (m === 'owner' && !roleList.slice(0, 3).some((r) => r.name === roleName))
       setRoleName(roleList[0].name);
   };
-  const changeScope = (next: Scope) => {
-    setScope(next);
-    setPage(frameworkComplete ? 'overview' : 'setup');
-    setRoleName((next === 'general' ? generalRoles : clubRoles)[0].name);
-  };
   const startPath = (route: 'team' | 'self') => {
     try {
       const saved = JSON.parse(localStorage.getItem(frameworkKey(scope, userId)) || 'null') || {};
@@ -5468,24 +5492,60 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
       localStorage.setItem(userStorageKey(userId, 'onboarding'), 'path_chosen');
     } catch {}
     setFrameworkComplete(false);
+    setSetupComplete(false);
     setPage('setup');
     setEntryState('ready');
+  };
+  const finishRegistration = () => {
+    const profile = { ...registrationProfile, name: registrationProfile.name.trim(), email: registrationProfile.email.trim(), organization: registrationProfile.organization.trim(), position: registrationProfile.position.trim() };
+    if (!profile.name || !profile.email.includes('@') || !profile.organization || !profile.position) {
+      setRegistrationError('Укажите имя, рабочий email, название сообщества и вашу должность.');
+      return;
+    }
+    localStorage.setItem(userStorageKey(userId, 'registration'), JSON.stringify(profile));
+    localStorage.setItem(userStorageKey(userId, 'onboarding'), 'registered');
+    setFrameworkComplete(false);
+    setSetupComplete(false);
+    setRegistrationProfile(profile);
+    setRegistrationError('');
+    setEntryState('choice');
   };
   const confirmFramework = () => {
     localStorage.setItem(userStorageKey(userId, 'onboarding'), 'framework_confirmed');
     setFrameworkComplete(true);
   };
-  const completeSetup = () => {
+  const completeSetup = (roleNames: string[]) => {
     localStorage.setItem(userStorageKey(userId, 'onboarding'), 'setup_complete');
+    setActiveRoleNames(roleNames);
+    setSetupComplete(true);
     setPage('overview');
   };
   if (entryState === 'loading') return <div className="entry-loading">Загружаем Role Center…</div>;
+  if (entryState === 'registration') return (
+    <main className="entry-shell">
+      <div className="entry-brand"><span>RC</span><div><b>Role Center</b><small>Центр управления ролями</small></div></div>
+      <section className="entry-panel">
+        <div className="entry-progress"><span className="complete"><Check /> Вход</span><span className="current">2 · Регистрация</span><span>3 · Путь</span><span>4 · Проектирование</span></div>
+        <div className="entry-auth"><div className="entry-auth-icon"><UserRound /></div><div><b>{user ? 'Вход через ChatGPT подтверждён' : 'Демонстрационный режим'}</b><span>{user ? user.email : 'Автономная HTML-версия без платформенной авторизации'}</span></div><Check /></div>
+        <span className="entry-eyebrow">Первый шаг</span><h1>Зарегистрируйте профиль в Role Center</h1>
+        <p>Создайте профиль вашего сообщества. После регистрации вы выберете способ проектирования ролей.</p>
+        <div className="registration-grid">
+          <label>Ваше имя и фамилия<input value={registrationProfile.name} onChange={(e) => setRegistrationProfile({ ...registrationProfile, name: e.target.value })} placeholder="Фамилия Имя" /></label>
+          <label>Рабочий email<input type="email" value={registrationProfile.email} onChange={(e) => setRegistrationProfile({ ...registrationProfile, email: e.target.value })} placeholder="name@example.com" /></label>
+          <label>Название сообщества или клуба<input value={registrationProfile.organization} onChange={(e) => setRegistrationProfile({ ...registrationProfile, organization: e.target.value })} placeholder="Название вашего сообщества" /></label>
+          <label>Ваша должность<input value={registrationProfile.position} onChange={(e) => setRegistrationProfile({ ...registrationProfile, position: e.target.value })} placeholder="Например, руководитель сообщества" /></label>
+        </div>
+        {registrationError && <p className="form-error" role="alert">{registrationError}</p>}
+        <div className="registration-footer"><span>В прототипе регистрация сохраняется только в этом браузере. Отдельный аккаунт и доступы пока не создаются.</span><button className="primary" onClick={finishRegistration}>Зарегистрироваться и выбрать путь <ArrowRight /></button></div>
+      </section>
+    </main>
+  );
   if (entryState === 'choice') return (
     <main className="entry-shell">
       <div className="entry-brand"><span>RC</span><div><b>Role Center</b><small>Центр управления ролями</small></div></div>
       <section className="entry-panel">
-        <div className="entry-progress"><span className="complete"><Check /> Авторизация</span><span className="current">2 · Выбор пути</span><span>3 · Фреймворк</span></div>
-        <div className="entry-auth"><div className="entry-auth-icon"><UserRound /></div><div><b>{user ? 'Вы авторизованы' : 'Демонстрационный вход'}</b><span>{user ? user.displayName : 'В автономной HTML-версии авторизация не подключена'}</span></div><Check /></div>
+        <div className="entry-progress"><span className="complete"><Check /> Вход</span><span className="complete"><Check /> Регистрация</span><span className="current">3 · Выбор пути</span><span>4 · Фреймворк</span></div>
+        <div className="entry-auth"><div className="entry-auth-icon"><UserRound /></div><div><b>{registrationProfile.organization}</b><span>{registrationProfile.name} · {registrationProfile.position}</span></div><Check /></div>
         <span className="entry-eyebrow">Первый вход</span>
         <h1>Как вы хотите создать ролевую систему?</h1>
         <p>Выберите путь сейчас. В обоих случаях следующим шагом будет один и тот же фреймворк — он поможет сформулировать задачу, аудиторию, эффекты и ресурсы пилота.</p>
@@ -5493,14 +5553,14 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
           <button onClick={() => startPath('team')}><Users /><b>Проектировать с командой</b><span>Заполнить фреймворк, передать запрос команде и затем вместе создать роли.</span><em>Выбрать путь <ArrowRight /></em></button>
           <button onClick={() => startPath('self')}><Sparkles /><b>Проектировать самостоятельно</b><span>Заполнить фреймворк, получить подбор ролей из базы и настроить пилот.</span><em>Выбрать путь <ArrowRight /></em></button>
         </div>
-        <details className="entry-dev-note"><summary>Для разработчика: логика входа</summary><p>Реальный вход выполняет платформа ChatGPT до открытия приложения. Выбор пути сохраняется для текущего пользователя и клуба; затем открывается общий фреймворк. В этом прототипе выбор хранится в браузере, а производственная схема описана в документации проекта.</p></details>
+        <details className="entry-dev-note"><summary>Для разработчика: логика входа</summary><p>Платформа подтверждает личность до открытия приложения. Регистрация сообщества, выбор пути и фреймворк — отдельные состояния. В прототипе они хранятся в браузере; серверная модель описана в документации проекта.</p></details>
       </section>
     </main>
   );
   return (
     <main className="app-shell">
       <header className="topbar">
-        <button className="brand" onClick={() => setPage('overview')}>
+        <button className="brand" onClick={() => setPage(setupComplete ? 'overview' : 'setup')}>
           <span>RC</span>
           <div>
             <b>Role Center</b>
@@ -5512,7 +5572,7 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
             <button
               className={page === id ? 'active' : ''}
               onClick={() => setPage(id)}
-              disabled={!frameworkComplete && id !== 'setup'}
+              disabled={id !== 'setup' && !setupComplete && (!frameworkComplete || (id !== 'catalog' && id !== 'roles'))}
               key={id}
             >
               <Icon />
@@ -5520,11 +5580,11 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
                 <b>{label}</b>
                 <small>{hint}</small>
               </span>
-              {id === 'tasks' && <em>{attention + 3}</em>}
+              {id === 'tasks' && attention > 0 && <em>{attention}</em>}
             </button>
           ))}
         </nav>
-        <div className="mode-switch">
+        {setupComplete && <div className="mode-switch">
           <button
             className={mode === 'operator' ? 'active' : ''}
             onClick={() => changeMode('operator')}
@@ -5537,14 +5597,14 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
           >
             Владелец
           </button>
-        </div>
+        </div>}
       </header>
       <div className="mobile-nav">
         {menu.map(({ id, label, icon: Icon }) => (
           <button
             className={page === id ? 'active' : ''}
             onClick={() => setPage(id)}
-            disabled={!frameworkComplete && id !== 'setup'}
+            disabled={id !== 'setup' && !setupComplete && (!frameworkComplete || (id !== 'catalog' && id !== 'roles'))}
             key={id}
           >
             <Icon />
@@ -5553,13 +5613,9 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
         ))}
       </div>
       <div className="workspace">
-        <div className="scope-tabs" role="tablist" aria-label="Область ролевой системы">
-          <button role="tab" aria-selected={scope === 'general'} className={scope === 'general' ? 'active' : ''} onClick={() => changeScope('general')}>Общая модель</button>
-          <button role="tab" aria-selected={scope === 'clubfirst'} className={scope === 'clubfirst' ? 'active' : ''} onClick={() => changeScope('clubfirst')}>ClubFirst <span>{clubRoles.length}</span></button>
-        </div>
-        {scope === 'clubfirst' && <div className="scope-description"><b>ClubFirst</b><span>Роли, показатели, эффекты и экономика из модели ClubFirst. Фактические данные подключаются отдельно.</span></div>}
+        <div className="scope-description"><b>Общая модель</b><span>Вы проектируете ролевую систему для своего сообщества.</span></div>
         {page === 'overview' && (
-          <Overview openRole={openRole} mode={mode} roleList={roleList} scope={scope} />
+          <Overview openRole={openRole} mode={mode} roleList={portfolioRoles} scope={scope} />
         )}{' '}
         {page === 'catalog' && (
           <RoleCatalog
@@ -5576,11 +5632,11 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
             role={role}
             setRole={openRole}
             mode={mode}
-            roleList={roleList}
+            roleList={portfolioRoles}
             onSave={saveRole}
           />
         )}{' '}
-        {page === 'tasks' && <Tasks key={scope} mode={mode} roleList={roleList} scope={scope} userId={userId} />}{' '}
+        {page === 'tasks' && <Tasks key={scope} mode={mode} roleList={portfolioRoles} scope={scope} userId={userId} />}{' '}
         {page === 'setup' && (
           <Setup
             key={scope}
