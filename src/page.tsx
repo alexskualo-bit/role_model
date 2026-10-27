@@ -4654,7 +4654,13 @@ function Setup({
     try {
       const saved = JSON.parse(localStorage.getItem(frameworkKey(scope, userId)) || 'null');
       if (saved) {
-        setFramework({ ...emptyFramework, ...saved.framework });
+        setFramework({
+          ...emptyFramework,
+          ...saved.framework,
+          data: saved.framework?.data === 'Система учёта, профиль и активности'
+            ? 'Система учёта и активности'
+            : saved.framework?.data || '',
+        });
         setOperator(saved.operator || { name: '', position: '', contact: '' });
         setOperatorStatus(saved.operatorStatus === 'pending' ? 'pending' : 'assigned');
         setSelected(Array.isArray(saved.selected) ? saved.selected : []);
@@ -4856,7 +4862,7 @@ function Setup({
               <span>Какие данные уже доступны?</span>
               <select value={framework.data} onChange={(e) => updateFramework('data', e.target.value)}>
                 <option value="">Выберите источник</option>
-                <option>Система учёта, профиль и активности</option>
+                <option>Система учёта и активности</option>
                 <option>CRM и система членства</option>
                 <option>Таблица участников</option>
                 <option>Пока только ручной ввод</option>
