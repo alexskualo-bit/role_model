@@ -1686,14 +1686,20 @@ function CalculationModel({
   role,
   compact = false,
   onChange,
+  initialModel,
+  initialSection = 'index',
+  onSectionChange,
 }: {
   role: Role;
   compact?: boolean;
   onChange?: (model: RoleModel) => void;
+  initialModel?: RoleModel;
+  initialSection?: 'index' | 'effects' | 'economy';
+  onSectionChange?: (section: 'index' | 'effects' | 'economy') => void;
 }) {
-  const initial = role.model || makeRoleModel(role);
+  const initial = initialModel || role.model || makeRoleModel(role);
   const [section, setSection] = useState<'index' | 'effects' | 'economy'>(
-    'index',
+    initialSection,
   );
   const [dimensions, setDimensions] = useState<CalcDimension[]>(
     initial.dimensions,
@@ -1963,21 +1969,21 @@ function CalculationModel({
       <nav className="calc-tabs">
         <button
           className={section === 'index' ? 'active' : ''}
-          onClick={() => setSection('index')}
+          onClick={() => { setSection('index'); onSectionChange?.('index'); }}
         >
           <Gauge />
           Индекс здоровья
         </button>
         <button
           className={section === 'effects' ? 'active' : ''}
-          onClick={() => setSection('effects')}
+          onClick={() => { setSection('effects'); onSectionChange?.('effects'); }}
         >
           <Target />
           Эффекты
         </button>
         <button
           className={section === 'economy' ? 'active' : ''}
-          onClick={() => setSection('economy')}
+          onClick={() => { setSection('economy'); onSectionChange?.('economy'); }}
         >
           <Calculator />
           Экономика
@@ -2566,10 +2572,14 @@ function RoleConfigurator({
   role,
   onClose,
   onSave,
+  draftKey,
+  closeLabel = 'Вернуться к роли',
 }: {
   role: Role;
   onClose: () => void;
   onSave: (role: Role) => void;
+  draftKey?: string;
+  closeLabel?: string;
 }) {
   const [beneficiaryEffect, setBeneficiaryEffect] = useState(
     role.beneficiaryEffect,
@@ -2582,6 +2592,26 @@ function RoleConfigurator({
   );
   const [saved, setSaved] = useState(false);
   const [showIssues, setShowIssues] = useState(false);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const [currentSection, setCurrentSection] = useState<'index' | 'effects' | 'economy'>('index');
+  useEffect(() => {
+    if (draftKey) {
+      try {
+        const draft = JSON.parse(localStorage.getItem(draftKey) || 'null');
+        if (draft?.roleName === role.name) {
+          if (typeof draft.beneficiaryEffect === 'string') setBeneficiaryEffect(draft.beneficiaryEffect);
+          if (typeof draft.participantEffect === 'string') setParticipantEffect(draft.participantEffect);
+          if (draft.model) setModel(draft.model);
+          if (draft.section === 'index' || draft.section === 'effects' || draft.section === 'economy') setCurrentSection(draft.section);
+        }
+      } catch {}
+    }
+    setDraftLoaded(true);
+  }, [draftKey, role.name]);
+  useEffect(() => {
+    if (!draftKey || !draftLoaded || saved) return;
+    localStorage.setItem(draftKey, JSON.stringify({ roleName: role.name, beneficiaryEffect, participantEffect, model, section: currentSection }));
+  }, [draftKey, draftLoaded, saved, role.name, beneficiaryEffect, participantEffect, model, currentSection]);
   const issues = [
     ...(!beneficiaryEffect.trim() ? ['Опишите эффект для клуба'] : []),
     ...(!participantEffect.trim() ? ['Опишите эффект для участника'] : []),
@@ -2649,6 +2679,7 @@ function RoleConfigurator({
         action: d.metrics.map((m) => m.action).join('; '),
       })),
     });
+    if (draftKey) localStorage.removeItem(draftKey);
     setSaved(true);
   };
   return (
@@ -2663,7 +2694,7 @@ function RoleConfigurator({
           </p>
         </div>
         <button className="secondary" onClick={onClose}>
-          Вернуться к роли
+          {closeLabel}
         </button>
       </div>
       <div className="configuration-grid">
@@ -2708,7 +2739,7 @@ function RoleConfigurator({
           </p>
         </section>
       </div>
-      <CalculationModel role={role} onChange={setModel} />
+      {draftLoaded && <CalculationModel role={role} initialModel={model} initialSection={currentSection} onSectionChange={setCurrentSection} onChange={setModel} />}
       {showIssues && issues.length > 0 && (
         <div className="configuration-errors" role="alert">
           <b>Перед сохранением завершите настройку:</b>
@@ -4589,8 +4620,7 @@ function Setup({
   roleList,
   scope,
   userId,
-  onOpenCatalog,
-  onConfigure,
+  onCreateRole,
   onSaveRole,
   onFrameworkComplete,
   onSetupComplete,
@@ -4598,8 +4628,7 @@ function Setup({
   roleList: Role[];
   scope: Scope;
   userId: string;
-  onOpenCatalog: () => void;
-  onConfigure: (role: Role) => void;
+  onCreateRole: (role: Role) => void;
   onSaveRole: (role: Role) => void;
   onFrameworkComplete: () => void;
   onSetupComplete: (roleNames: string[]) => void;
@@ -4617,6 +4646,11 @@ function Setup({
   const [teamRequest, setTeamRequest] = useState(false);
   const [frameworkError, setFrameworkError] = useState('');
   const [launchMessage, setLaunchMessage] = useState('');
+  const [editingRoleName, setEditingRoleName] = useState<string | null>(null);
+  const [creatingRole, setCreatingRole] = useState(false);
+  const [customName, setCustomName] = useState('');
+  const [customPurpose, setCustomPurpose] = useState('');
+  const [customError, setCustomError] = useState('');
   const [draftLoaded, setDraftLoaded] = useState(false);
   useEffect(() => {
     try {
@@ -4632,13 +4666,14 @@ function Setup({
         setGenerated(Boolean(saved.generated));
         setTeamRequest(Boolean(saved.teamRequest));
         setStep(Number(saved.step) || 1);
+        if (typeof saved.editingRoleName === 'string' && roleList.some((role) => role.name === saved.editingRoleName)) setEditingRoleName(saved.editingRoleName);
       }
     } catch {}
     setDraftLoaded(true);
   }, [scope, userId]);
   useEffect(() => {
-    if (draftLoaded) localStorage.setItem(frameworkKey(scope, userId), JSON.stringify({ route, framework, operator, selected, parametersConfirmed, primaryRolesLoaded, dataSource, generated, teamRequest, step }));
-  }, [scope, userId, route, framework, operator, selected, parametersConfirmed, primaryRolesLoaded, dataSource, generated, teamRequest, step, draftLoaded]);
+    if (draftLoaded) localStorage.setItem(frameworkKey(scope, userId), JSON.stringify({ route, framework, operator, selected, parametersConfirmed, primaryRolesLoaded, dataSource, generated, teamRequest, step, editingRoleName }));
+  }, [scope, userId, route, framework, operator, selected, parametersConfirmed, primaryRolesLoaded, dataSource, generated, teamRequest, step, editingRoleName, draftLoaded]);
   const updateFramework = (key: keyof FrameworkAnswers, value: string) => {
     setFramework((current) => ({ ...current, [key]: value }));
     setGenerated(false);
@@ -4664,6 +4699,29 @@ function Setup({
       }
       return c.length < 5 ? [...c, name] : c;
     });
+  const createCustomRole = () => {
+    const name = customName.trim();
+    const purpose = customPurpose.trim();
+    if (!name || !purpose) {
+      setCustomError('Укажите название и задачу новой роли.');
+      return;
+    }
+    if (roles.some((role) => role.name.toLowerCase() === name.toLowerCase())) {
+      setCustomError('Роль с таким названием уже есть в библиотеке.');
+      return;
+    }
+    if (selected.length >= 5) {
+      setCustomError('В первом проектировании можно выбрать не более пяти ролей.');
+      return;
+    }
+    onCreateRole(createEmptyRole(name, purpose, ''));
+    setSelected((current) => [...current, name]);
+    setPrimaryRolesLoaded(false);
+    setCreatingRole(false);
+    setCustomName('');
+    setCustomPurpose('');
+    setCustomError('');
+  };
   const launch = () => {
     const missing = selected
       .map((name) => roles.find((role) => role.name === name))
@@ -4702,6 +4760,28 @@ function Setup({
       'Пилот подготовлен: роли, параметры, ответственные и распределение проверены. Подключение реальных данных остаётся отдельным шагом.',
     );
   };
+  const editingRole = step === 5 ? roles.find((role) => role.name === editingRoleName) : undefined;
+  if (editingRole) return (
+    <div className="page-stack">
+      <div className="setup-editor-context">
+        <button className="secondary" onClick={() => setEditingRoleName(null)}>← Вернуться к шагу 5</button>
+        <div><span>Шаг 5 из 8 · Роль {selected.indexOf(editingRole.name) + 1} из {selected.length}</span><b>{editingRole.name}</b><small>Вы остаетесь в настройке. Черновик этой роли сохраняется в браузере автоматически.</small></div>
+        <strong>{selected.filter((name) => parametersConfirmed.includes(name)).length} / {selected.length} готово</strong>
+      </div>
+      <RoleConfigurator
+        key={editingRole.name}
+        role={editingRole}
+        draftKey={userStorageKey(userId, `setup-role-draft:${editingRole.name}`)}
+        closeLabel="Вернуться к списку ролей"
+        onClose={() => setEditingRoleName(null)}
+        onSave={(updated) => {
+          onSaveRole(updated);
+          setParametersConfirmed((current) => current.includes(updated.name) ? current : [...current, updated.name]);
+          setEditingRoleName(null);
+        }}
+      />
+    </div>
+  );
   return (
     <div className="page-stack">
       <div className="page-title">
@@ -4908,22 +4988,25 @@ function Setup({
                 </button>
                 {selected.includes(r.name) && (
                   <div className="setup-design-actions">
-                    <button
-                      className="secondary"
-                      onClick={() => onConfigure(r)}
-                    >
-                      <Settings2 />
-                      Проектировать роль: индекс, эффекты, экономика
-                    </button>
+                    <span>Выбрана для проекта · индекс, эффекты и экономику настроим вместе на следующем шаге.</span>
                   </div>
                 )}
               </div>
             ))}
           </div>
-          <button className="secondary" onClick={onOpenCatalog}>
+          <button className="secondary" onClick={() => setCreatingRole((current) => !current)}>
             <Plus />
-            Открыть конструктор и создать свою роль
+            {creatingRole ? 'Скрыть создание роли' : 'Создать свою роль здесь'}
           </button>
+          {creatingRole && <div className="setup-inline-create">
+            <div><b>Новая роль в этом проекте</b><span>После создания она появится в списке и останется в текущем шаге.</span></div>
+            <div className="custom-role-fields">
+              <label>Название роли<input value={customName} onChange={(event) => setCustomName(event.target.value)} placeholder="Например, проводник сообщества" /></label>
+              <label>Какую задачу решает<input value={customPurpose} onChange={(event) => setCustomPurpose(event.target.value)} placeholder="Кратко о назначении роли" /></label>
+            </div>
+            {customError && <p className="form-error" role="alert">{customError}</p>}
+            <button className="primary" onClick={createCustomRole}>Добавить роль в проект <ArrowRight /></button>
+          </div>}
           <button
             className="primary next"
             onClick={() => { if (selected.length) { setFrameworkError(''); setStep(5); } else setFrameworkError('Выберите хотя бы одну роль для проектирования.'); }}
@@ -4939,30 +5022,24 @@ function Setup({
             <div>
               <span>Шаг 5</span>
               <h2>Параметры каждой роли</h2>
-              <p>
-                Сначала проверьте и при необходимости измените индекс здоровья,
-                эффекты для участника и клуба, экономику, источники и цели.
-                Затем подтвердите модель каждой роли.
-              </p>
+              <p>Открывайте роли по одной. Настройка индекса, эффектов и экономики откроется здесь же; после сохранения вы вернётесь к этому списку. Место и черновик сохраняются.</p>
             </div>
           </div>
+          <div className="setup-progress-note"><b>{selected.filter((name) => parametersConfirmed.includes(name)).length} из {selected.length} ролей настроено</b><span>Следующая: {selected.find((name) => !parametersConfirmed.includes(name)) || 'все роли готовы'}</span></div>
           <div className="setup-role-list">
             {roles
               .filter((role) => selected.includes(role.name))
-              .map((role) => (
+              .map((role, index) => (
                 <div key={role.name} className="selected">
                   <div className="setup-calc-role">
                     <div>
-                      <b>{role.name}</b>
+                      <b>{index + 1}. {role.name}</b>
                       <small>
-                        {parametersConfirmed.includes(role.name) ? 'Параметры подтверждены' : role.configured ? 'Требует проверки параметров' : 'Требуется настройка'}
+                        {parametersConfirmed.includes(role.name) ? 'Показатели сохранены и подтверждены' : role.configured ? 'Проверьте готовую модель и сохраните' : 'Настройте показатели роли'}
                       </small>
                     </div>
                     <div className="setup-calc-actions">
-                      <button className="secondary" onClick={() => onConfigure(role)}><Settings2 /> Индекс, эффекты и экономика</button>
-                      <button className="secondary" disabled={!role.configured} onClick={() => setParametersConfirmed((current) => current.includes(role.name) ? current.filter((name) => name !== role.name) : [...current, role.name])}>
-                        <Check /> {parametersConfirmed.includes(role.name) ? 'Подтверждено' : 'Подтвердить параметры'}
-                      </button>
+                      <button className="secondary" onClick={() => setEditingRoleName(role.name)}><Settings2 /> {parametersConfirmed.includes(role.name) ? 'Изменить показатели' : 'Настроить показатели'}</button>
                     </div>
                   </div>
                 </div>
@@ -5471,6 +5548,9 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
     } catch {}
     openRole(created);
   };
+  const createSetupRole = (created: Role) => {
+    setRoleList((current) => current.some((role) => role.name.toLowerCase() === created.name.toLowerCase()) ? current : [...current, created]);
+  };
   const addRoleToSetup = (added: Role) => {
     try {
       const saved = JSON.parse(localStorage.getItem(frameworkKey(scope, userId)) || 'null') || {};
@@ -5574,7 +5654,7 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
             <button
               className={page === id ? 'active' : ''}
               onClick={() => setPage(id)}
-              disabled={id !== 'setup' && !setupComplete && (!frameworkComplete || (id !== 'catalog' && id !== 'roles'))}
+              disabled={id !== 'setup' && !setupComplete}
               key={id}
             >
               <Icon />
@@ -5606,7 +5686,7 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
           <button
             className={page === id ? 'active' : ''}
             onClick={() => setPage(id)}
-            disabled={id !== 'setup' && !setupComplete && (!frameworkComplete || (id !== 'catalog' && id !== 'roles'))}
+            disabled={id !== 'setup' && !setupComplete}
             key={id}
           >
             <Icon />
@@ -5645,8 +5725,7 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
             roleList={roleList}
             scope={scope}
             userId={userId}
-            onOpenCatalog={() => setPage('catalog')}
-            onConfigure={openRole}
+            onCreateRole={createSetupRole}
             onSaveRole={saveRole}
             onFrameworkComplete={confirmFramework}
             onSetupComplete={completeSetup}
