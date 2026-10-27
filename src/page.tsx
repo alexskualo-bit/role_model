@@ -607,13 +607,15 @@ function Overview({
   mode,
   roleList,
   scope,
+  ownerName,
 }: {
   openRole: (role: Role) => void;
   mode: Mode;
   roleList: Role[];
   scope: Scope;
+  ownerName?: string;
 }) {
-  const visible = mode === 'operator' ? roleList : roleList.slice(0, 3);
+  const visible = roleList;
   const measured = visible.filter(
     (role) => role.configured && role.dataReady !== false,
   );
@@ -627,7 +629,7 @@ function Overview({
         <div>
           <span>Рабочий стол</span>
           <h1>
-            {mode === 'operator' ? 'Состояние ролевой системы' : 'Мои роли'}
+            {mode === 'operator' ? 'Состояние ролевой системы' : `Роли владельца${ownerName ? ` · ${ownerName}` : ''}`}
           </h1>
           <p>
             {mode === 'operator'
@@ -635,7 +637,7 @@ function Overview({
               : 'Показатели, эффекты, экономика и задачи только по вашим ролям.'}
           </p>
         </div>
-        <button className="primary" onClick={() => openRole(visible[0])}>
+        <button className="primary" disabled={!visible.length} onClick={() => visible[0] && openRole(visible[0])}>
           Открыть роль <ArrowRight />
         </button>
       </div>
@@ -737,6 +739,7 @@ function Overview({
               </span>
             </button>
           ))}
+          {!visible.length && <p className="empty-owner-roles">У этого владельца пока нет закреплённых ролей.</p>}
         </div>
       </section>
       <section className="panel portfolio-economy">
@@ -791,7 +794,7 @@ function Overview({
         </div>
         {!visible.some((item) => item.dataReady !== false) ? (
           <div className="action-list">
-            {roleList.slice(0, 3).map((item) => (
+            {visible.slice(0, 3).map((item) => (
               <button key={item.name} onClick={() => openRole(item)}>
                 <i className="warn"><Database /></i>
                 <span><b>{item.name}: подключить факты</b><small>Методика роли загружена, фактический индекс пока не рассчитан</small></span>
@@ -800,14 +803,14 @@ function Overview({
             ))}
           </div>
         ) : <div className="action-list">
-          {visible.filter((item) => item.health < 75).map((item) => (
+          {visible.filter((item) => item.dataReady !== false && item.health < 75).map((item) => (
             <button key={item.name} onClick={() => openRole(item)}>
               <i className="warn"><AlertTriangle /></i>
               <span><b>{item.name}: индекс {item.health}</b><small>Откройте показатели и определите корректирующее действие</small></span>
               <ArrowRight />
             </button>
           ))}
-          {!visible.some((item) => item.health < 75) && <p>Отклонений по рассчитанным ролям нет.</p>}
+          {!visible.some((item) => item.dataReady !== false && item.health < 75) && <p>Отклонений по рассчитанным ролям нет.</p>}
         </div>}
       </section>
     </div>
@@ -2785,7 +2788,7 @@ function RolePage({
   useEffect(() => {
     setEditing(!role.configured);
   }, [role.name]);
-  const allowed = mode === 'operator' ? roleList : roleList.slice(0, 3);
+  const allowed = roleList;
   const tabs = [
     ['health', 'Здоровье', Gauge],
     ['effects', 'Эффекты', Target],
@@ -3857,7 +3860,7 @@ const initialTasks: TaskItem[] = [
   },
 ];
 
-function Tasks({ mode, roleList, scope, userId }: { mode: Mode; roleList: Role[]; scope: Scope; userId: string }) {
+function Tasks({ mode, roleList, scope, userId, ownerName }: { mode: Mode; roleList: Role[]; scope: Scope; userId: string; ownerName?: string }) {
   const roles = roleList;
   const [view, setView] = useState<'board' | 'map'>('board');
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -3906,10 +3909,10 @@ function Tasks({ mode, roleList, scope, userId }: { mode: Mode; roleList: Role[]
   const [taskSubject, setTaskSubject] = useState('Роль целиком');
   const [taskDue, setTaskDue] = useState(() => new Date().toISOString().slice(0, 10));
   const [taskOwner, setTaskOwner] = useState(
-    mode === 'operator' ? 'Оператор ролей' : 'Владелец роли',
+    mode === 'operator' ? 'Оператор ролей' : ownerName || 'Владелец роли',
   );
   const processes = processDrafts[mode];
-  const scoped = tasks.filter((t) => t.actor === mode);
+  const scoped = tasks.filter((t) => t.actor === mode && (mode === 'operator' || roleList.some((role) => role.name === t.role) || t.owner === ownerName));
   const visible = scoped.filter(
     (t) =>
       (roleFilter === 'Все роли' || t.role === roleFilter) &&
@@ -4623,6 +4626,7 @@ function Setup({
   onSaveRole,
   onFrameworkComplete,
   onSetupComplete,
+  onEnterDemo,
 }: {
   roleList: Role[];
   scope: Scope;
@@ -4631,6 +4635,7 @@ function Setup({
   onSaveRole: (role: Role) => void;
   onFrameworkComplete: () => void;
   onSetupComplete: (roleNames: string[]) => void;
+  onEnterDemo: () => void;
 }) {
   const roles = roleList;
   const [step, setStep] = useState(2);
@@ -4796,6 +4801,7 @@ function Setup({
           <h1>Настройка ролевой системы</h1>
           <p>От задачи клуба и подбора ролей до параметров, ответственных, распределения и запуска.</p>
         </div>
+        <button className="secondary" onClick={onEnterDemo}>Пропустить настройку · открыть демо <ArrowRight /></button>
       </div>
       <nav className="setup-steps seven">
         {[
@@ -5409,8 +5415,10 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
   const userId = user?.userId || 'demo';
   const [page, setPage] = useState<Page>('setup');
   const [setupComplete, setSetupComplete] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
   const [activeRoleNames, setActiveRoleNames] = useState<string[]>([]);
   const [mode, setMode] = useState<Mode>('operator');
+  const [selectedOwner, setSelectedOwner] = useState('');
   const [scope] = useState<Scope>('general');
   const [generalRoles, setGeneralRoles] = useState<Role[]>(
     roles.map((role) => ({
@@ -5426,19 +5434,27 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
   );
   const [clubRoles, setClubRoles] = useState<Role[]>(clubFirstRoles);
   const roleList = scope === 'general' ? generalRoles : clubRoles;
-  const portfolioRoles = setupComplete && activeRoleNames.length ? roleList.filter((role) => activeRoleNames.includes(role.name)) : roleList;
+  const portfolioRoles = (demoMode || !setupComplete || !activeRoleNames.length ? roleList : roleList.filter((role) => activeRoleNames.includes(role.name)))
+    .map((role, index) => demoMode && (!role.owner || role.owner === 'Не назначен')
+      ? { ...role, owner: index % 2 === 0 ? 'Илья Соколов' : 'Анна Волкова' }
+      : role);
+  const ownerNames = [...new Set(portfolioRoles.map((role) => role.owner).filter((name) => name && name !== 'Не назначен'))];
+  const currentOwner = ownerNames.includes(selectedOwner) ? selectedOwner : ownerNames[0] || '';
+  const visibleRoles = mode === 'operator' ? portfolioRoles : portfolioRoles.filter((role) => role.owner === currentOwner);
   const setRoleList = scope === 'general' ? setGeneralRoles : setClubRoles;
   const [roleName, setRoleName] = useState(roles[0].name);
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
     try {
       const phase = localStorage.getItem(userStorageKey(userId, 'onboarding'));
-      setSetupComplete(phase === 'setup_complete');
+      const savedDemoMode = localStorage.getItem(userStorageKey(userId, 'demoMode')) === 'true';
+      setDemoMode(savedDemoMode);
+      setSetupComplete(phase === 'setup_complete' || savedDemoMode);
       if (phase === 'setup_complete') {
         const savedSetup = JSON.parse(localStorage.getItem(frameworkKey('general', userId)) || 'null');
         if (Array.isArray(savedSetup?.selected)) setActiveRoleNames(savedSetup.selected);
       }
-      setPage(phase === 'setup_complete' ? 'overview' : 'setup');
+      setPage(phase === 'setup_complete' || savedDemoMode ? 'overview' : 'setup');
       const saved = localStorage.getItem(userStorageKey(userId, 'roles:general'));
       if (saved) {
         const stored = JSON.parse(saved) as Role[];
@@ -5469,10 +5485,10 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
   useEffect(() => {
     if (hydrated) localStorage.setItem(userStorageKey(userId, 'roles:clubfirst'), JSON.stringify(clubRoles));
   }, [clubRoles, hydrated, userId]);
-  const role = roleList.find((item) => item.name === roleName) || roleList[0];
+  const role = visibleRoles.find((item) => item.name === roleName) || visibleRoles[0];
   const attention = useMemo(
-    () => portfolioRoles.filter((r) => r.configured && r.dataReady !== false && r.health < 75).length,
-    [portfolioRoles],
+    () => visibleRoles.filter((r) => r.configured && r.dataReady !== false && r.health < 75).length,
+    [visibleRoles],
   );
   const openRole = (r: Role) => {
     setRoleName(r.name);
@@ -5508,14 +5524,29 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
   };
   const changeMode = (m: Mode) => {
     setMode(m);
-    if (m === 'owner' && !roleList.slice(0, 3).some((r) => r.name === roleName))
-      setRoleName(roleList[0].name);
+    const permitted = m === 'operator' ? portfolioRoles : portfolioRoles.filter((r) => r.owner === currentOwner);
+    if (!permitted.some((r) => r.name === roleName) && permitted[0]) setRoleName(permitted[0].name);
+  };
+  const changeOwner = (name: string) => {
+    setSelectedOwner(name);
+    const first = portfolioRoles.find((role) => role.owner === name);
+    if (first) setRoleName(first.name);
+  };
+  const enterDemo = () => {
+    localStorage.setItem(userStorageKey(userId, 'demoMode'), 'true');
+    setDemoMode(true);
+    setSetupComplete(true);
+    setActiveRoleNames([]);
+    setMode('operator');
+    setPage('overview');
   };
   const confirmFramework = () => {
     localStorage.setItem(userStorageKey(userId, 'onboarding'), 'framework_confirmed');
   };
   const completeSetup = (roleNames: string[]) => {
     localStorage.setItem(userStorageKey(userId, 'onboarding'), 'setup_complete');
+    localStorage.removeItem(userStorageKey(userId, 'demoMode'));
+    setDemoMode(false);
     setActiveRoleNames(roleNames);
     setSetupComplete(true);
     setPage('overview');
@@ -5562,6 +5593,11 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
             Владелец
           </button>
         </div>}
+        {setupComplete && mode === 'owner' && <label className="owner-selector">Владелец
+          <select value={currentOwner} onChange={(event) => changeOwner(event.target.value)}>
+            {ownerNames.map((name) => <option key={name} value={name}>{name}</option>)}
+          </select>
+        </label>}
       </header>
       <div className="mobile-nav">
         {menu.map(({ id, label, icon: Icon }) => (
@@ -5578,12 +5614,13 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
       </div>
       <div className="workspace">
         <div className="scope-description"><b>Общая модель</b><span>Вы проектируете ролевую систему для своего сообщества.</span></div>
+        {demoMode && <div className="demo-notice"><b>Демо-режим</b><span>Настройка пропущена. Назначения без введённого владельца показаны как пример. Демо-числа не являются фактическими показателями клуба.</span><button onClick={() => setPage('setup')}>Вернуться к настройке</button></div>}
         {page === 'overview' && (
-          <Overview openRole={openRole} mode={mode} roleList={portfolioRoles} scope={scope} />
+          <Overview openRole={openRole} mode={mode} roleList={visibleRoles} scope={scope} ownerName={currentOwner} />
         )}{' '}
         {page === 'catalog' && (
           <RoleCatalog
-            roleList={roleList}
+            roleList={visibleRoles}
             userId={userId}
             scope={scope}
             onOpen={openRole}
@@ -5591,16 +5628,16 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
             onAddToSetup={addRoleToSetup}
           />
         )}{' '}
-        {page === 'roles' && (
+        {page === 'roles' && role && (
           <RolePage
             role={role}
             setRole={openRole}
             mode={mode}
-            roleList={portfolioRoles}
+            roleList={visibleRoles}
             onSave={saveRole}
           />
         )}{' '}
-        {page === 'tasks' && <Tasks key={scope} mode={mode} roleList={portfolioRoles} scope={scope} userId={userId} />}{' '}
+        {page === 'tasks' && <Tasks key={`${scope}:${mode}:${currentOwner}`} mode={mode} roleList={visibleRoles} scope={scope} userId={userId} ownerName={currentOwner} />}{' '}
         {page === 'setup' && (
           <Setup
             key={scope}
@@ -5611,6 +5648,7 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
             onSaveRole={saveRole}
             onFrameworkComplete={confirmFramework}
             onSetupComplete={completeSetup}
+            onEnterDemo={enterDemo}
           />
         )}
       </div>
