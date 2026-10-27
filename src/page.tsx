@@ -5496,10 +5496,12 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
     setPage('setup');
     setEntryState('ready');
   };
-  const finishRegistration = () => {
-    const profile = { ...registrationProfile, name: registrationProfile.name.trim(), email: registrationProfile.email.trim(), organization: registrationProfile.organization.trim(), position: registrationProfile.position.trim() };
-    if (!profile.name || !profile.email.includes('@') || !profile.organization || !profile.position) {
-      setRegistrationError('Укажите имя, рабочий email, название сообщества и вашу должность.');
+  const finishRegistration = (demo = false) => {
+    const profile = demo
+      ? { name: 'Демо-пользователь', email: user?.email || 'demo@example.invalid', organization: 'Демо-сообщество', position: 'Участник команды' }
+      : { ...registrationProfile, name: registrationProfile.name.trim(), email: registrationProfile.email.trim(), organization: registrationProfile.organization.trim(), position: registrationProfile.position.trim() };
+    if (!profile.name || !profile.email.includes('@') || !profile.organization) {
+      setRegistrationError('Заполните обязательные поля: имя, рабочий email и название сообщества. Или откройте демо без заполнения формы.');
       return;
     }
     localStorage.setItem(userStorageKey(userId, 'registration'), JSON.stringify(profile));
@@ -5528,15 +5530,15 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
         <div className="entry-progress"><span className="complete"><Check /> Вход</span><span className="current">2 · Регистрация</span><span>3 · Путь</span><span>4 · Проектирование</span></div>
         <div className="entry-auth"><div className="entry-auth-icon"><UserRound /></div><div><b>{user ? 'Вход через ChatGPT подтверждён' : 'Демонстрационный режим'}</b><span>{user ? user.email : 'Автономная HTML-версия без платформенной авторизации'}</span></div><Check /></div>
         <span className="entry-eyebrow">Первый шаг</span><h1>Зарегистрируйте профиль в Role Center</h1>
-        <p>Создайте профиль вашего сообщества. После регистрации вы выберете способ проектирования ролей.</p>
+        <p>Создайте профиль вашего сообщества. После регистрации вы выберете способ проектирования ролей. Для быстрого знакомства можно открыть демо без заполнения формы.</p>
         <div className="registration-grid">
-          <label>Ваше имя и фамилия<input value={registrationProfile.name} onChange={(e) => setRegistrationProfile({ ...registrationProfile, name: e.target.value })} placeholder="Фамилия Имя" /></label>
-          <label>Рабочий email<input type="email" value={registrationProfile.email} onChange={(e) => setRegistrationProfile({ ...registrationProfile, email: e.target.value })} placeholder="name@example.com" /></label>
-          <label>Название сообщества или клуба<input value={registrationProfile.organization} onChange={(e) => setRegistrationProfile({ ...registrationProfile, organization: e.target.value })} placeholder="Название вашего сообщества" /></label>
-          <label>Ваша должность<input value={registrationProfile.position} onChange={(e) => setRegistrationProfile({ ...registrationProfile, position: e.target.value })} placeholder="Например, руководитель сообщества" /></label>
+          <label>Ваше имя и фамилия *<input value={registrationProfile.name} onChange={(e) => setRegistrationProfile({ ...registrationProfile, name: e.target.value })} placeholder="Фамилия Имя" /></label>
+          <label>Рабочий email *<input type="email" value={registrationProfile.email} onChange={(e) => setRegistrationProfile({ ...registrationProfile, email: e.target.value })} placeholder="name@example.com" /></label>
+          <label>Название сообщества или клуба *<input value={registrationProfile.organization} onChange={(e) => setRegistrationProfile({ ...registrationProfile, organization: e.target.value })} placeholder="Название вашего сообщества" /></label>
+          <label>Ваша должность · необязательно<input value={registrationProfile.position} onChange={(e) => setRegistrationProfile({ ...registrationProfile, position: e.target.value })} placeholder="Например, руководитель сообщества" /></label>
         </div>
         {registrationError && <p className="form-error" role="alert">{registrationError}</p>}
-        <div className="registration-footer"><span>В прототипе регистрация сохраняется только в этом браузере. Отдельный аккаунт и доступы пока не создаются.</span><button className="primary" onClick={finishRegistration}>Зарегистрироваться и выбрать путь <ArrowRight /></button></div>
+        <div className="registration-footer"><span>В прототипе профиль сохраняется только в этом браузере. Отдельный аккаунт и доступы пока не создаются.</span><div className="registration-actions"><button className="secondary" onClick={() => finishRegistration(true)}>Посмотреть демо без заполнения</button><button className="primary" onClick={() => finishRegistration()}>Зарегистрироваться и выбрать путь <ArrowRight /></button></div></div>
       </section>
     </main>
   );
