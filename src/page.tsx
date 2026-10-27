@@ -5451,7 +5451,8 @@ const mergeStoredRoles = (defaults: Role[], stored: Role[]): Role[] => [
 export default function Home({ user }: { user?: { userId: string; displayName: string; email: string } }) {
   const userId = user?.userId || 'demo';
   const [page, setPage] = useState<Page>('setup');
-  const [entryState, setEntryState] = useState<'loading' | 'registration' | 'choice' | 'ready'>('loading');
+  const [entryState, setEntryState] = useState<'loading' | 'registration' | 'profile' | 'choice' | 'ready'>('loading');
+  const [profileReturn, setProfileReturn] = useState<'choice' | 'ready'>('ready');
   const [registrationProfile, setRegistrationProfile] = useState<RegistrationProfile>({ name: '', email: user?.email || '', organization: '', position: '' });
   const [registrationError, setRegistrationError] = useState('');
   const [frameworkComplete, setFrameworkComplete] = useState(false);
@@ -5592,6 +5593,32 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
     setRegistrationError('');
     setEntryState('choice');
   };
+  const openProfile = (returnTo: 'choice' | 'ready') => {
+    try {
+      const saved = localStorage.getItem(userStorageKey(userId, 'registration'));
+      if (saved) setRegistrationProfile(JSON.parse(saved));
+    } catch {}
+    setProfileReturn(returnTo);
+    setRegistrationError('');
+    setEntryState('profile');
+  };
+  const saveProfile = () => {
+    const profile = {
+      ...registrationProfile,
+      name: registrationProfile.name.trim(),
+      email: registrationProfile.email.trim(),
+      organization: registrationProfile.organization.trim(),
+      position: registrationProfile.position.trim(),
+    };
+    if (!profile.name || !profile.email.includes('@') || !profile.organization) {
+      setRegistrationError('Заполните имя, рабочий email и название сообщества.');
+      return;
+    }
+    localStorage.setItem(userStorageKey(userId, 'registration'), JSON.stringify(profile));
+    setRegistrationProfile(profile);
+    setRegistrationError('');
+    setEntryState(profileReturn);
+  };
   const confirmFramework = () => {
     localStorage.setItem(userStorageKey(userId, 'onboarding'), 'framework_confirmed');
     setFrameworkComplete(true);
@@ -5603,14 +5630,14 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
     setPage('overview');
   };
   if (entryState === 'loading') return <div className="entry-loading">Загружаем Role Center…</div>;
-  if (entryState === 'registration') return (
+  if (entryState === 'registration' || entryState === 'profile') return (
     <main className="entry-shell">
       <div className="entry-brand"><span>RC</span><div><b>Role Center</b><small>Центр управления ролями</small></div></div>
       <section className="entry-panel">
-        <div className="entry-progress"><span className="complete"><Check /> Вход</span><span className="current">2 · Регистрация</span><span>3 · Путь</span><span>4 · Проектирование</span></div>
+        <div className="entry-progress"><span className="complete"><Check /> Вход</span><span className={entryState === 'profile' ? 'complete' : 'current'}>{entryState === 'profile' && <Check />} 2 · Регистрация</span><span>3 · Путь</span><span>4 · Проектирование</span></div>
         <div className="entry-auth"><div className="entry-auth-icon"><UserRound /></div><div><b>{user ? 'Вход через ChatGPT подтверждён' : 'Демонстрационный режим'}</b><span>{user ? user.email : 'Автономная HTML-версия без платформенной авторизации'}</span></div><Check /></div>
-        <span className="entry-eyebrow">Первый шаг</span><h1>Зарегистрируйте профиль в Role Center</h1>
-        <p>Создайте профиль вашего сообщества. После регистрации вы выберете способ проектирования ролей. Для быстрого знакомства можно открыть демо без заполнения формы.</p>
+        <span className="entry-eyebrow">{entryState === 'profile' ? 'Ваши данные' : 'Первый шаг'}</span><h1>{entryState === 'profile' ? 'Профиль сообщества' : 'Зарегистрируйте профиль в Role Center'}</h1>
+        <p>{entryState === 'profile' ? 'Проверьте или измените данные регистрации. Ваш путь и прогресс проектирования сохранятся.' : 'Создайте профиль вашего сообщества. После регистрации вы выберете способ проектирования ролей. Для быстрого знакомства можно открыть демо без заполнения формы.'}</p>
         <div className="registration-grid">
           <label>Ваше имя и фамилия *<input value={registrationProfile.name} onChange={(e) => setRegistrationProfile({ ...registrationProfile, name: e.target.value })} placeholder="Фамилия Имя" /></label>
           <label>Рабочий email *<input type="email" value={registrationProfile.email} onChange={(e) => setRegistrationProfile({ ...registrationProfile, email: e.target.value })} placeholder="name@example.com" /></label>
@@ -5618,7 +5645,7 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
           <label>Ваша должность · необязательно<input value={registrationProfile.position} onChange={(e) => setRegistrationProfile({ ...registrationProfile, position: e.target.value })} placeholder="Например, руководитель сообщества" /></label>
         </div>
         {registrationError && <p className="form-error" role="alert">{registrationError}</p>}
-        <div className="registration-footer"><span>В прототипе профиль сохраняется только в этом браузере. Отдельный аккаунт и доступы пока не создаются.</span><div className="registration-actions"><button className="secondary" onClick={() => finishRegistration(true)}>Посмотреть демо без заполнения</button><button className="primary" onClick={() => finishRegistration()}>Зарегистрироваться и выбрать путь <ArrowRight /></button></div></div>
+        <div className="registration-footer"><span>В прототипе профиль сохраняется только в этом браузере. Отдельный аккаунт и доступы пока не создаются.</span><div className="registration-actions">{entryState === 'profile' ? <><button className="secondary" onClick={() => { try { const saved = localStorage.getItem(userStorageKey(userId, 'registration')); if (saved) setRegistrationProfile(JSON.parse(saved)); } catch {} setRegistrationError(''); setEntryState(profileReturn); }}>Назад без изменений</button><button className="primary" onClick={saveProfile}>Сохранить профиль <Check /></button></> : <><button className="secondary" onClick={() => finishRegistration(true)}>Посмотреть демо без заполнения</button><button className="primary" onClick={() => finishRegistration()}>Зарегистрироваться и выбрать путь <ArrowRight /></button></>}</div></div>
       </section>
     </main>
   );
@@ -5627,7 +5654,7 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
       <div className="entry-brand"><span>RC</span><div><b>Role Center</b><small>Центр управления ролями</small></div></div>
       <section className="entry-panel">
         <div className="entry-progress"><span className="complete"><Check /> Вход</span><span className="complete"><Check /> Регистрация</span><span className="current">3 · Выбор пути</span><span>4 · Фреймворк</span></div>
-        <div className="entry-auth"><div className="entry-auth-icon"><UserRound /></div><div><b>{registrationProfile.organization}</b><span>{registrationProfile.name} · {registrationProfile.position}</span></div><Check /></div>
+        <div className="entry-auth"><div className="entry-auth-icon"><UserRound /></div><div><b>{registrationProfile.organization}</b><span>{registrationProfile.name} · {registrationProfile.position}</span></div><button className="entry-profile-link" onClick={() => openProfile('choice')}>Изменить профиль</button></div>
         <span className="entry-eyebrow">Первый вход</span>
         <h1>Как вы хотите создать ролевую систему?</h1>
         <p>Выберите путь сейчас. В обоих случаях следующим шагом будет один и тот же фреймворк — он поможет сформулировать задачу, аудиторию, эффекты и ресурсы пилота.</p>
@@ -5680,6 +5707,7 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
             Владелец
           </button>
         </div>}
+        <button className="profile-link" onClick={() => openProfile('ready')} title="Посмотреть данные регистрации"><UserRound /><span>Профиль</span></button>
       </header>
       <div className="mobile-nav">
         {menu.map(({ id, label, icon: Icon }) => (
