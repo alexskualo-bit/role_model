@@ -81,7 +81,6 @@ type FrameworkAnswers = {
 const emptyFramework: FrameworkAnswers = {
   goal: '', audience: '', outcome: '', context: '', data: '', pilot: '',
 };
-type RegistrationProfile = { name: string; email: string; organization: string; position: string };
 const userStorageKey = (userId: string, name: string) => `role-center-v3:${userId}:${name}`;
 const frameworkKey = (scope: Scope, userId: string) => userStorageKey(userId, `framework:${scope}`);
 const suggestRoles = (items: Role[], answers: FrameworkAnswers, excluded: string[] = []) => {
@@ -4634,16 +4633,15 @@ function Setup({
   onSetupComplete: (roleNames: string[]) => void;
 }) {
   const roles = roleList;
-  const [route, setRoute] = useState<'team' | 'self'>('self');
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(2);
   const [framework, setFramework] = useState<FrameworkAnswers>(emptyFramework);
   const [operator, setOperator] = useState({ name: '', position: '', contact: '' });
+  const [operatorStatus, setOperatorStatus] = useState<'assigned' | 'pending'>('assigned');
   const [selected, setSelected] = useState<string[]>([]);
   const [parametersConfirmed, setParametersConfirmed] = useState<string[]>([]);
   const [primaryRolesLoaded, setPrimaryRolesLoaded] = useState(false);
   const [dataSource, setDataSource] = useState<'crm' | 'table' | 'manual' | ''>('');
   const [generated, setGenerated] = useState(false);
-  const [teamRequest, setTeamRequest] = useState(false);
   const [frameworkError, setFrameworkError] = useState('');
   const [launchMessage, setLaunchMessage] = useState('');
   const [editingRoleName, setEditingRoleName] = useState<string | null>(null);
@@ -4656,28 +4654,26 @@ function Setup({
     try {
       const saved = JSON.parse(localStorage.getItem(frameworkKey(scope, userId)) || 'null');
       if (saved) {
-        setRoute(saved.route === 'team' ? 'team' : 'self');
         setFramework({ ...emptyFramework, ...saved.framework });
         setOperator(saved.operator || { name: '', position: '', contact: '' });
+        setOperatorStatus(saved.operatorStatus === 'pending' ? 'pending' : 'assigned');
         setSelected(Array.isArray(saved.selected) ? saved.selected : []);
         setParametersConfirmed(Array.isArray(saved.parametersConfirmed) ? saved.parametersConfirmed : []);
         setPrimaryRolesLoaded(Boolean(saved.primaryRolesLoaded));
         setDataSource(saved.dataSource || '');
         setGenerated(Boolean(saved.generated));
-        setTeamRequest(Boolean(saved.teamRequest));
-        setStep(Number(saved.step) || 1);
+        setStep(Math.max(2, Number(saved.step) || 2));
         if (typeof saved.editingRoleName === 'string' && roleList.some((role) => role.name === saved.editingRoleName)) setEditingRoleName(saved.editingRoleName);
       }
     } catch {}
     setDraftLoaded(true);
   }, [scope, userId]);
   useEffect(() => {
-    if (draftLoaded) localStorage.setItem(frameworkKey(scope, userId), JSON.stringify({ route, framework, operator, selected, parametersConfirmed, primaryRolesLoaded, dataSource, generated, teamRequest, step, editingRoleName }));
-  }, [scope, userId, route, framework, operator, selected, parametersConfirmed, primaryRolesLoaded, dataSource, generated, teamRequest, step, editingRoleName, draftLoaded]);
+    if (draftLoaded) localStorage.setItem(frameworkKey(scope, userId), JSON.stringify({ route: 'self', framework, operator, operatorStatus, selected, parametersConfirmed, primaryRolesLoaded, dataSource, generated, step, editingRoleName }));
+  }, [scope, userId, framework, operator, operatorStatus, selected, parametersConfirmed, primaryRolesLoaded, dataSource, generated, step, editingRoleName, draftLoaded]);
   const updateFramework = (key: keyof FrameworkAnswers, value: string) => {
     setFramework((current) => ({ ...current, [key]: value }));
     setGenerated(false);
-    setTeamRequest(false);
   };
   const validFramework = (Object.keys(emptyFramework) as (keyof FrameworkAnswers)[]).every((key) => framework[key]?.trim().length > 0);
   const finishFramework = () => {
@@ -4738,6 +4734,10 @@ function Setup({
       setLaunchMessage('Назначьте владельца, его должность и контакт для каждой выбранной роли.');
       return;
     }
+    if (operatorStatus === 'pending') {
+      setLaunchMessage('Для запуска назначьте оператора ролевой системы на шаге «Ответственные».');
+      return;
+    }
     if (!operator.name.trim() || !operator.position.trim() || !operator.contact.trim()) {
       setLaunchMessage('Назначьте оператора ролей: имя, должность и контакт.');
       return;
@@ -4765,7 +4765,7 @@ function Setup({
     <div className="page-stack">
       <div className="setup-editor-context">
         <button className="secondary" onClick={() => setEditingRoleName(null)}>← Вернуться к шагу 5</button>
-        <div><span>Шаг 5 из 8 · Роль {selected.indexOf(editingRole.name) + 1} из {selected.length}</span><b>{editingRole.name}</b><small>Вы остаетесь в настройке. Черновик этой роли сохраняется в браузере автоматически.</small></div>
+        <div><span>Шаг 4 из 7 · Роль {selected.indexOf(editingRole.name) + 1} из {selected.length}</span><b>{editingRole.name}</b><small>Вы остаетесь в настройке. Черновик этой роли сохраняется в браузере автоматически.</small></div>
         <strong>{selected.filter((name) => parametersConfirmed.includes(name)).length} / {selected.length} готово</strong>
       </div>
       <RoleConfigurator
@@ -4787,15 +4787,14 @@ function Setup({
       <div className="page-title">
         <div>
           <span>Первичная настройка</span>
-          <h1>Путь от запроса до запуска ролей</h1>
-          <p>От выбора пути и описания задачи до параметров, ответственных, распределения и запуска.</p>
+          <h1>Настройка ролевой системы</h1>
+          <p>От задачи клуба и подбора ролей до параметров, ответственных, распределения и запуска.</p>
         </div>
       </div>
-      <nav className="setup-steps eight">
+      <nav className="setup-steps seven">
         {[
-          'Путь',
           'Фреймворк',
-          'Следующий шаг',
+          'Подбор ролей',
           'Проектирование',
           'Параметры',
           'Ответственные',
@@ -4803,54 +4802,20 @@ function Setup({
           'Запуск',
         ].map((x, i) => (
           <button
-            className={step === i + 1 ? 'active' : step > i + 1 ? 'done' : ''}
-            onClick={() => { if (i + 1 <= step) setStep(i + 1); }}
+            className={step === i + 2 ? 'active' : step > i + 2 ? 'done' : ''}
+            onClick={() => { if (i + 2 <= step) setStep(i + 2); }}
             key={x}
           >
-            <span>{step > i + 1 ? <Check /> : i + 1}</span>
+            <span>{step > i + 2 ? <Check /> : i + 1}</span>
             {x}
           </button>
         ))}
       </nav>
-      {step === 1 && (
-        <section className="setup-card">
-          <div className="section-title">
-            <div>
-              <span>Шаг 1</span>
-              <h2>Как будете проектировать систему?</h2>
-              <p>В обоих сценариях сначала нужно сформулировать задачу по единому фреймворку.</p>
-            </div>
-          </div>
-          <div className="route-options">
-            <button
-              className={route === 'team' ? 'active' : ''}
-              onClick={() => { setRoute('team'); setGenerated(false); setTeamRequest(false); }}
-            >
-              <Users />
-              <b>Совместно с командой</b>
-              <p>После фреймворка запрос передаётся команде. Затем вы переходите к созданию и настройке ролей.</p>
-              <span>{route === 'team' && <Check />}</span>
-            </button>
-            <button
-              className={route === 'self' ? 'active' : ''}
-              onClick={() => { setRoute('self'); setGenerated(false); setTeamRequest(false); }}
-            >
-              <Sparkles />
-              <b>Самостоятельно</b>
-              <p>После фреймворка помощник подбирает роли из базы. Вы проверяете и настраиваете каждую.</p>
-              <span>{route === 'self' && <Check />}</span>
-            </button>
-          </div>
-          <button className="primary next" onClick={() => setStep(2)}>
-            Продолжить <ArrowRight />
-          </button>
-        </section>
-      )}
       {step === 2 && (
         <section className="setup-card">
           <div className="section-title">
             <div>
-              <span>Шаг 2</span>
+              <span>Шаг 1</span>
               <h2>Фреймворк ролевой системы</h2>
               <p>
                 Ответы задают основу модели, а не конкретные показатели
@@ -4912,9 +4877,7 @@ function Setup({
             <div>
               <b>Что получится после ответов</b>
               <span>
-                {route === 'self'
-                  ? 'Помощник предложит подходящие роли из базы; решение о выборе и запуске остаётся за вами.'
-                  : 'Вы сформируете запрос команде, затем перейдёте к совместному проектированию ролей.'}
+                Помощник предложит подходящие роли из базы; решение о выборе и запуске остаётся за вами.
               </span>
             </div>
           </div>
@@ -4928,8 +4891,8 @@ function Setup({
         <section className="setup-card">
           <div className="section-title">
             <div>
-              <span>Шаг 3</span>
-              <h2>{route === 'self' ? 'Подбор ролей по вашему запросу' : 'Передача запроса команде'}</h2>
+              <span>Шаг 2</span>
+              <h2>Подбор ролей по вашему запросу</h2>
               <p>Основа — сохранённые ответы фреймворка. Изменить их можно на предыдущем шаге.</p>
             </div>
           </div>
@@ -4937,38 +4900,24 @@ function Setup({
             <Target />
             <div><b>{framework.goal}</b><span>{framework.audience} · {framework.outcome} · данные: {framework.data}</span></div>
           </div>
-          {route === 'self' ? (
-            <>
-              <p className="setup-explainer">Помощник сопоставляет вашу задачу с описаниями ролей в базе. Это демонстрационный подбор: внешняя нейросеть пока не подключена.</p>
-              <button className="primary" onClick={() => setGenerated(true)}><Sparkles /> Подобрать роли из базы</button>
-              {generated && <div className="setup-suggestions">
-                {recommended.map(({ role, reason }) => <article key={role.name}>
-                  <div><b>{role.name}</b><small>{reason}</small><span>{role.short}</span></div>
-                  <button className="secondary" onClick={() => toggle(role.name)}>{selected.includes(role.name) ? 'Убрать' : 'Добавить'}</button>
-                </article>)}
-              </div>}
-              {generated && <button className="primary next" onClick={() => setStep(4)}>Перейти к созданию ролей <ArrowRight /></button>}
-            </>
-          ) : (
-            <>
-              <div className="team-handoff">
-                <b>Что получит команда</b>
-                <span>Цель, аудиторию, ожидаемый результат, среду проявления ролей, доступные данные, оператора и масштаб пилота. На этой основе команда проектирует кастомную модель.</span>
-              </div>
-              <button className="primary" onClick={() => setTeamRequest(true)}><Users /> Отправить на создание ролей</button>
-              {teamRequest && <div className="draft-notice" role="status"><Check /><span>Запрос подготовлен в прототипе. Внешняя отправка команде пока не подключена; после согласования можно перейти к проектированию.</span></div>}
-              {teamRequest && <button className="primary next" onClick={() => setStep(4)}>Перейти к созданию ролей <ArrowRight /></button>}
-            </>
-          )}
+          <p className="setup-explainer">Помощник сопоставляет вашу задачу с описаниями ролей в базе. Это демонстрационный подбор: внешняя нейросеть пока не подключена.</p>
+          <button className="primary" onClick={() => setGenerated(true)}><Sparkles /> Подобрать роли из базы</button>
+          {generated && <div className="setup-suggestions">
+            {recommended.map(({ role, reason }) => <article key={role.name}>
+              <div><b>{role.name}</b><small>{reason}</small><span>{role.short}</span></div>
+              <button className="secondary" onClick={() => toggle(role.name)}>{selected.includes(role.name) ? 'Убрать' : 'Добавить'}</button>
+            </article>)}
+          </div>}
+          {generated && <button className="primary next" onClick={() => setStep(4)}>Перейти к созданию ролей <ArrowRight /></button>}
         </section>
       )}
       {step === 4 && (
         <section className="setup-card">
           <div className="section-title">
             <div>
-              <span>Шаг 4</span>
+              <span>Шаг 3</span>
               <h2>Проектирование ролей</h2>
-              <p>{route === 'team' ? 'Выберите роли, согласованные с командой, или создайте кастомные. Для каждой откройте полную модель.' : 'Проверьте рекомендованные роли, адаптируйте их или создайте свои.'}</p>
+              <p>Проверьте рекомендованные роли, адаптируйте их или создайте свои.</p>
             </div>
             <small>{selected.length} выбрано</small>
           </div>
@@ -5020,7 +4969,7 @@ function Setup({
         <section className="setup-calculations">
           <div className="setup-calc-head">
             <div>
-              <span>Шаг 5</span>
+              <span>Шаг 4</span>
               <h2>Параметры каждой роли</h2>
               <p>Открывайте роли по одной. Настройка индекса, эффектов и экономики откроется здесь же; после сохранения вы вернётесь к этому списку. Место и черновик сохраняются.</p>
             </div>
@@ -5059,13 +5008,15 @@ function Setup({
       )}
       {step === 6 && (
         <section className="setup-card">
-          <div className="section-title"><div><span>Шаг 6</span><h2>Оператор и владельцы ролей</h2><p>После настройки параметров назначьте методологического оператора и владельца каждой роли.</p></div></div>
+          <div className="section-title"><div><span>Шаг 5</span><h2>Кто отвечает за систему и роли</h2><p>Разделите методологическое управление всей системой и операционную работу с каждой конкретной ролью.</p></div></div>
+          <div className="responsibility-guide"><article><b>Оператор ролевой системы</b><span>Отвечает за общую архитектуру и методику: проверяет новые роли, критерии, пересечения и изменения. Видит портфель всех ролей.</span></article><article><b>Владелец конкретной роли</b><span>Внедряет роль в процессы клуба, работает с кандидатами и носителями, ведёт задачи и актуальность назначений. Видит свои роли.</span></article></div>
+          <div className="operator-choice"><b>Оператор уже определён?</b><div><button className={operatorStatus === 'assigned' ? 'active' : ''} onClick={() => setOperatorStatus('assigned')}>Да, назначить сейчас</button><button className={operatorStatus === 'pending' ? 'active' : ''} onClick={() => setOperatorStatus('pending')}>Пока нет</button></div><small>{operatorStatus === 'pending' ? 'Можно продолжить настройку, но перед запуском пилота оператор должен быть назначен.' : 'Укажите человека, который будет отвечать за методологию всей ролевой системы.'}</small></div>
           <div className="setup-owner-list">
-            <article><b>Оператор ролевой системы</b><div className="owner-fields">
+            {operatorStatus === 'assigned' && <article><b>Оператор ролевой системы</b><div className="owner-fields">
               <label>Фамилия и имя<input value={operator.name} onChange={(e) => setOperator({ ...operator, name: e.target.value })} placeholder="Фамилия Имя" /></label>
               <label>Должность<input value={operator.position} onChange={(e) => setOperator({ ...operator, position: e.target.value })} placeholder="Должность" /></label>
               <label>Контакт<input value={operator.contact} onChange={(e) => setOperator({ ...operator, contact: e.target.value })} placeholder="Почта или телефон" /></label>
-            </div></article>
+            </div></article>}
             {roles.filter((r) => selected.includes(r.name)).map((r) => <article key={r.name}>
               <b>Владелец роли · {r.name}</b>
               <div className="owner-fields">
@@ -5076,7 +5027,7 @@ function Setup({
             </article>)}
           </div>
           <button className="primary next" onClick={() => {
-            if (!operator.name.trim() || !operator.position.trim() || !operator.contact.trim()) setFrameworkError('Укажите имя, должность и контакт оператора.');
+            if (operatorStatus === 'assigned' && (!operator.name.trim() || !operator.position.trim() || !operator.contact.trim())) setFrameworkError('Укажите имя, должность и контакт оператора.');
             else if (roles.filter((r) => selected.includes(r.name)).some((r) => !r.owner.trim() || !r.ownerPosition?.trim() || !r.ownerContact?.trim())) setFrameworkError('Укажите имя, должность и контакт владельца для каждой роли.');
             else { setFrameworkError(''); setStep(7); }
           }}>Перейти к распределению <ArrowRight /></button>
@@ -5087,7 +5038,7 @@ function Setup({
         <section className="setup-card">
           <div className="section-title">
             <div>
-              <span>Шаг 7</span>
+              <span>Шаг 6</span>
               <h2>Первичные роли и распределение</h2>
               <p>Зафиксируйте роли первого запуска, распределите их по пилотам и проверьте нагрузку владельцев до запуска.</p>
             </div>
@@ -5098,7 +5049,7 @@ function Setup({
               <label>Очередь запуска<select value={role.pilot === 'Пилот 2' ? 'Пилот 2' : 'Пилот 1'} onChange={(e) => { onSaveRole({ ...role, pilot: e.target.value }); setPrimaryRolesLoaded(false); }}><option>Пилот 1</option><option>Пилот 2</option></select></label>
             </article>)}
           </div>
-          <div className="distribution-summary"><b>Распределение:</b><span>Пилот 1 — {roles.filter((r) => selected.includes(r.name) && r.pilot !== 'Пилот 2').length} роли</span><span>Пилот 2 — {roles.filter((r) => selected.includes(r.name) && r.pilot === 'Пилот 2').length} роли</span><span>Владельцев — {new Set(roles.filter((r) => selected.includes(r.name)).map((r) => r.owner.trim()).filter(Boolean)).size}</span></div>
+          <div className="distribution-summary"><b>Распределение:</b><span>Пилот 1 — {roles.filter((r) => selected.includes(r.name) && r.pilot !== 'Пилот 2').length} роли</span><span>Пилот 2 — {roles.filter((r) => selected.includes(r.name) && r.pilot === 'Пилот 2').length} роли</span><span>Владельцев — {new Set(roles.filter((r) => selected.includes(r.name)).map((r) => r.owner.trim()).filter(Boolean)).size}</span><span>Оператор — {operatorStatus === 'assigned' ? operator.name || 'данные не заполнены' : 'пока не назначен'}</span></div>
           <button className="secondary" onClick={() => setPrimaryRolesLoaded(true)}><Check /> Зафиксировать первичный портфель ролей</button>
           {primaryRolesLoaded && <div className="draft-notice" role="status"><Check /><span>Первичные роли зафиксированы. Можно выбрать источник данных и перейти к проверке запуска.</span></div>}
           <h3 className="setup-subheading">Источник данных для пилота</h3>
@@ -5124,7 +5075,7 @@ function Setup({
       )}
       {step === 8 && (
         <section className="setup-card">
-          <div className="section-title"><div><span>Шаг 8</span><h2>Проверка перед запуском</h2><p>Роли, параметры и ответственные должны быть согласованы до активации системы.</p></div></div>
+          <div className="section-title"><div><span>Шаг 7</span><h2>Проверка перед запуском</h2><p>Роли, параметры и ответственные должны быть согласованы до активации системы.</p></div></div>
           <div className="data-checklist">
             <div>
               <Check />
@@ -5451,11 +5402,6 @@ const mergeStoredRoles = (defaults: Role[], stored: Role[]): Role[] => [
 export default function Home({ user }: { user?: { userId: string; displayName: string; email: string } }) {
   const userId = user?.userId || 'demo';
   const [page, setPage] = useState<Page>('setup');
-  const [entryState, setEntryState] = useState<'loading' | 'registration' | 'profile' | 'choice' | 'ready'>('loading');
-  const [profileReturn, setProfileReturn] = useState<'choice' | 'ready'>('ready');
-  const [registrationProfile, setRegistrationProfile] = useState<RegistrationProfile>({ name: '', email: user?.email || '', organization: '', position: '' });
-  const [registrationError, setRegistrationError] = useState('');
-  const [frameworkComplete, setFrameworkComplete] = useState(false);
   const [setupComplete, setSetupComplete] = useState(false);
   const [activeRoleNames, setActiveRoleNames] = useState<string[]>([]);
   const [mode, setMode] = useState<Mode>('operator');
@@ -5481,11 +5427,6 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
   useEffect(() => {
     try {
       const phase = localStorage.getItem(userStorageKey(userId, 'onboarding'));
-      const savedProfile = localStorage.getItem(userStorageKey(userId, 'registration'));
-      if (savedProfile) setRegistrationProfile(JSON.parse(savedProfile));
-      const hasChosenPath = phase === 'path_chosen' || phase === 'framework_confirmed' || phase === 'setup_complete';
-      setEntryState(!savedProfile ? 'registration' : hasChosenPath ? 'ready' : 'choice');
-      setFrameworkComplete(phase === 'framework_confirmed' || phase === 'setup_complete');
       setSetupComplete(phase === 'setup_complete');
       if (phase === 'setup_complete') {
         const savedSetup = JSON.parse(localStorage.getItem(frameworkKey('general', userId)) || 'null');
@@ -5564,64 +5505,8 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
     if (m === 'owner' && !roleList.slice(0, 3).some((r) => r.name === roleName))
       setRoleName(roleList[0].name);
   };
-  const startPath = (route: 'team' | 'self') => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(frameworkKey(scope, userId)) || 'null') || {};
-      localStorage.setItem(frameworkKey(scope, userId), JSON.stringify({
-        ...saved, route, step: 2, generated: false, teamRequest: false,
-      }));
-      localStorage.setItem(userStorageKey(userId, 'onboarding'), 'path_chosen');
-    } catch {}
-    setFrameworkComplete(false);
-    setSetupComplete(false);
-    setPage('setup');
-    setEntryState('ready');
-  };
-  const finishRegistration = (demo = false) => {
-    const profile = demo
-      ? { name: 'Демо-пользователь', email: user?.email || 'demo@example.invalid', organization: 'Демо-сообщество', position: 'Участник команды' }
-      : { ...registrationProfile, name: registrationProfile.name.trim(), email: registrationProfile.email.trim(), organization: registrationProfile.organization.trim(), position: registrationProfile.position.trim() };
-    if (!profile.name || !profile.email.includes('@') || !profile.organization) {
-      setRegistrationError('Заполните обязательные поля: имя, рабочий email и название сообщества. Или откройте демо без заполнения формы.');
-      return;
-    }
-    localStorage.setItem(userStorageKey(userId, 'registration'), JSON.stringify(profile));
-    localStorage.setItem(userStorageKey(userId, 'onboarding'), 'registered');
-    setFrameworkComplete(false);
-    setSetupComplete(false);
-    setRegistrationProfile(profile);
-    setRegistrationError('');
-    setEntryState('choice');
-  };
-  const openProfile = (returnTo: 'choice' | 'ready') => {
-    try {
-      const saved = localStorage.getItem(userStorageKey(userId, 'registration'));
-      if (saved) setRegistrationProfile(JSON.parse(saved));
-    } catch {}
-    setProfileReturn(returnTo);
-    setRegistrationError('');
-    setEntryState('profile');
-  };
-  const saveProfile = () => {
-    const profile = {
-      ...registrationProfile,
-      name: registrationProfile.name.trim(),
-      email: registrationProfile.email.trim(),
-      organization: registrationProfile.organization.trim(),
-      position: registrationProfile.position.trim(),
-    };
-    if (!profile.name || !profile.email.includes('@') || !profile.organization) {
-      setRegistrationError('Заполните имя, рабочий email и название сообщества.');
-      return;
-    }
-    localStorage.setItem(userStorageKey(userId, 'registration'), JSON.stringify(profile));
-    setRegistrationProfile(profile);
-    setRegistrationError('');
-    setEntryState(profileReturn);
-  };
   const confirmFramework = () => {
     localStorage.setItem(userStorageKey(userId, 'onboarding'), 'framework_confirmed');
-    setFrameworkComplete(true);
   };
   const completeSetup = (roleNames: string[]) => {
     localStorage.setItem(userStorageKey(userId, 'onboarding'), 'setup_complete');
@@ -5629,43 +5514,7 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
     setSetupComplete(true);
     setPage('overview');
   };
-  if (entryState === 'loading') return <div className="entry-loading">Загружаем Role Center…</div>;
-  if (entryState === 'registration' || entryState === 'profile') return (
-    <main className="entry-shell">
-      <div className="entry-brand"><span>RC</span><div><b>Role Center</b><small>Центр управления ролями</small></div></div>
-      <section className="entry-panel">
-        <div className="entry-progress"><span className="complete"><Check /> Вход</span><span className={entryState === 'profile' ? 'complete' : 'current'}>{entryState === 'profile' && <Check />} 2 · Регистрация</span><span>3 · Путь</span><span>4 · Проектирование</span></div>
-        <div className="entry-auth"><div className="entry-auth-icon"><UserRound /></div><div><b>{user ? 'Вход через ChatGPT подтверждён' : 'Демонстрационный режим'}</b><span>{user ? user.email : 'Автономная HTML-версия без платформенной авторизации'}</span></div><Check /></div>
-        <span className="entry-eyebrow">{entryState === 'profile' ? 'Ваши данные' : 'Первый шаг'}</span><h1>{entryState === 'profile' ? 'Профиль сообщества' : 'Зарегистрируйте профиль в Role Center'}</h1>
-        <p>{entryState === 'profile' ? 'Проверьте или измените данные регистрации. Ваш путь и прогресс проектирования сохранятся.' : 'Создайте профиль вашего сообщества. После регистрации вы выберете способ проектирования ролей. Для быстрого знакомства можно открыть демо без заполнения формы.'}</p>
-        <div className="registration-grid">
-          <label>Ваше имя и фамилия *<input value={registrationProfile.name} onChange={(e) => setRegistrationProfile({ ...registrationProfile, name: e.target.value })} placeholder="Фамилия Имя" /></label>
-          <label>Рабочий email *<input type="email" value={registrationProfile.email} onChange={(e) => setRegistrationProfile({ ...registrationProfile, email: e.target.value })} placeholder="name@example.com" /></label>
-          <label>Название сообщества или клуба *<input value={registrationProfile.organization} onChange={(e) => setRegistrationProfile({ ...registrationProfile, organization: e.target.value })} placeholder="Название вашего сообщества" /></label>
-          <label>Ваша должность · необязательно<input value={registrationProfile.position} onChange={(e) => setRegistrationProfile({ ...registrationProfile, position: e.target.value })} placeholder="Например, руководитель сообщества" /></label>
-        </div>
-        {registrationError && <p className="form-error" role="alert">{registrationError}</p>}
-        <div className="registration-footer"><span>В прототипе профиль сохраняется только в этом браузере. Отдельный аккаунт и доступы пока не создаются.</span><div className="registration-actions">{entryState === 'profile' ? <><button className="secondary" onClick={() => { try { const saved = localStorage.getItem(userStorageKey(userId, 'registration')); if (saved) setRegistrationProfile(JSON.parse(saved)); } catch {} setRegistrationError(''); setEntryState(profileReturn); }}>Назад без изменений</button><button className="primary" onClick={saveProfile}>Сохранить профиль <Check /></button></> : <><button className="secondary" onClick={() => finishRegistration(true)}>Посмотреть демо без заполнения</button><button className="primary" onClick={() => finishRegistration()}>Зарегистрироваться и выбрать путь <ArrowRight /></button></>}</div></div>
-      </section>
-    </main>
-  );
-  if (entryState === 'choice') return (
-    <main className="entry-shell">
-      <div className="entry-brand"><span>RC</span><div><b>Role Center</b><small>Центр управления ролями</small></div></div>
-      <section className="entry-panel">
-        <div className="entry-progress"><span className="complete"><Check /> Вход</span><span className="complete"><Check /> Регистрация</span><span className="current">3 · Выбор пути</span><span>4 · Фреймворк</span></div>
-        <div className="entry-auth"><div className="entry-auth-icon"><UserRound /></div><div><b>{registrationProfile.organization}</b><span>{registrationProfile.name} · {registrationProfile.position}</span></div><button className="entry-profile-link" onClick={() => openProfile('choice')}>Изменить профиль</button></div>
-        <span className="entry-eyebrow">Первый вход</span>
-        <h1>Как вы хотите создать ролевую систему?</h1>
-        <p>Выберите путь сейчас. В обоих случаях следующим шагом будет один и тот же фреймворк — он поможет сформулировать задачу, аудиторию, эффекты и ресурсы пилота.</p>
-        <div className="entry-routes">
-          <button onClick={() => startPath('team')}><Users /><b>Проектировать с командой</b><span>Заполнить фреймворк, передать запрос команде и затем вместе создать роли.</span><em>Выбрать путь <ArrowRight /></em></button>
-          <button onClick={() => startPath('self')}><Sparkles /><b>Проектировать самостоятельно</b><span>Заполнить фреймворк, получить подбор ролей из базы и настроить пилот.</span><em>Выбрать путь <ArrowRight /></em></button>
-        </div>
-        <details className="entry-dev-note"><summary>Для разработчика: логика входа</summary><p>Платформа подтверждает личность до открытия приложения. Регистрация сообщества, выбор пути и фреймворк — отдельные состояния. В прототипе они хранятся в браузере; серверная модель описана в документации проекта.</p></details>
-      </section>
-    </main>
-  );
+  if (!hydrated) return <div className="entry-loading">Загружаем Role Center…</div>;
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -5707,7 +5556,6 @@ export default function Home({ user }: { user?: { userId: string; displayName: s
             Владелец
           </button>
         </div>}
-        <button className="profile-link" onClick={() => openProfile('ready')} title="Посмотреть данные регистрации"><UserRound /><span>Профиль</span></button>
       </header>
       <div className="mobile-nav">
         {menu.map(({ id, label, icon: Icon }) => (
